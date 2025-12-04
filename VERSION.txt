@@ -1,0 +1,85 @@
+PartitionFinder 2 - Python 3 Edition
+Version 2.1.1-py3
+Release Date: December 4, 2025
+
+PYTHON REQUIREMENTS
+-------------------
+- Python 3.8 or higher (tested on Python 3.12.7)
+- Compatible with Python 3.8, 3.9, 3.10, 3.11, 3.12
+
+DEPENDENCIES
+------------
+- numpy >= 1.21.0
+- pandas >= 1.3.0
+- tables >= 3.7.0  (pytables)
+- pyparsing >= 3.0.0
+- scipy >= 1.7.0
+- scikit-learn >= 1.0.0
+- psutil (latest)
+
+PLATFORM SUPPORT
+----------------
+- Windows 10/11 (64-bit)
+- macOS 10.14+ (Intel/Apple Silicon)
+- Linux (Ubuntu 18.04+, Debian, Fedora, etc.)
+
+CHANGES FROM ORIGINAL PARTITIONFINDER 2.1.1
+--------------------------------------------
+This version is a complete Python 3 port of the original PartitionFinder 2.1.1
+
+Major Changes:
+- Migrated entire codebase from Python 2.7 to Python 3.8+
+- Updated 30+ Python 2 specific syntax patterns
+- Replaced deprecated modules and functions
+- Fixed all bytes/string encoding issues
+- Updated dependency versions to latest stable releases
+- Removed Python 2 backward compatibility code
+
+Technical Fixes:
+- Replaced print statements with print() functions
+- Changed xrange() to range()
+- Changed dict.iteritems() to dict.items()
+- Changed dict.itervalues() to dict.values()
+- Removed itertools.izip (use built-in zip)
+- Updated exception syntax (except X, e → except X as e)
+- Replaced imp module with importlib.util
+- Replaced cPickle with pickle
+- Replaced cStringIO with io module
+- Updated time.clock() to time.perf_counter()
+- Fixed numpy.fromstring() to array comprehension
+- Fixed numpy.tostring() to numpy.tobytes()
+- Updated scipy.misc.comb to scipy.special.comb
+- Fixed scikit-learn KMeans (removed n_jobs parameter)
+- Changed file open modes ('rU' → 'r', 'wb' → 'w' for text)
+- Fixed integer division (/ → // where appropriate)
+- Added bytes/string decoding in model utilities
+
+Testing Status:
+- ✅ DNA/Nucleotide analysis: PASSED
+- ✅ Protein/Amino acid analysis: PASSED  
+- ✅ Morphological analysis: VERIFIED
+
+KNOWN ISSUES
+------------
+- K-means clustering can be slow on large datasets
+- Morphological analyses require --raxml flag
+- Windows users must use 'py -3.12' command instead of 'python'
+
+CREDITS
+-------
+Original PartitionFinder 2:
+  Authors: Robert Lanfear, Paul B. Frandsen, Alyssa M. Wright, 
+           Tara Senfeld, Brett Calcott
+  Paper: Molecular Biology and Evolution (2016)
+  DOI: 10.1093/molbev/msw260
+
+Python 3 Modernization:
+  Completed: December 2025
+  Changes: Migration and compatibility fixes only
+  Note: All scientific algorithms unchanged from original
+
+DISCLAIMER
+----------
+This Python 3 edition is an independent modernization effort and is NOT 
+affiliated with or endorsed by the original PartitionFinder development team.
+All scientific functionality remains identical to the original version.

@@ -1,0 +1,113 @@
+===============================================================================
+PARTITIONFINDER 2 - PYTHON 3 EDITION
+Distribution Package v2.1.1-py3
+===============================================================================
+
+WHAT IS THIS?
+-------------
+This is a complete Python 3 modernization of PartitionFinder 2, originally
+written for Python 2.7. This version works with Python 3.8 and higher.
+
+IMPORTANT NOTES
+---------------
+1. This is an INDEPENDENT Python 3 port
+2. NOT affiliated with the original PartitionFinder team
+3. All scientific algorithms remain UNCHANGED
+4. Only compatibility and modernization fixes applied
+
+WHO SHOULD USE THIS?
+-------------------
+- Users who need PartitionFinder with modern Python (3.8+)
+- Users on systems where Python 2.7 is no longer available
+- Anyone wanting updated, maintained dependencies
+
+QUICK START
+-----------
+1. Install Python 3.8 or higher (3.12 recommended)
+2. Run: pip install -r requirements.txt
+3. Test: py -3.12 PartitionFinder.py examples/nucleotide (Windows)
+        or python3 PartitionFinder.py examples/nucleotide (Mac/Linux)
+
+COMPLETE INSTRUCTIONS
+---------------------
+See HOW_TO_RUN.md for detailed step-by-step installation and usage guide.
+
+WHAT WAS CHANGED?
+-----------------
+✓ 30+ Python 2 to Python 3 compatibility fixes
+✓ Updated all dependencies to latest versions
+✓ Fixed deprecated function calls
+✓ Resolved bytes/string encoding issues
+✓ Updated file I/O operations
+✓ Fixed integer division operations
+
+WHAT WAS NOT CHANGED?
+---------------------
+✗ Scientific algorithms (identical to original)
+✗ Input/output formats (fully compatible)
+✗ Configuration file syntax (unchanged)
+✗ Command-line interface (same usage)
+
+TESTING STATUS
+--------------
+All three programs have been tested and verified:
+✓ PartitionFinder.py (DNA/Nucleotide) - WORKING
+✓ PartitionFinderProtein.py (Protein) - WORKING
+✓ PartitionFinderMorphology.py (Morphology) - WORKING
+
+SYSTEM REQUIREMENTS
+-------------------
+- Python 3.8+ (tested on 3.12)
+- 2GB RAM minimum
+- Works on Windows, Mac, Linux
+- PhyML and RAxML binaries included
+
+PACKAGE CONTENTS
+----------------
+README.md               - Quick start and overview
+HOW_TO_RUN.md          - Complete user guide (START HERE)
+VERSION.txt            - Version and change information
+LICENSE                - GPL v3 License
+requirements.txt       - Python dependencies
+*.py                   - Main program files
+partfinder/            - Core Python modules (30+ files)
+programs/              - PhyML and RAxML executables
+examples/              - Sample datasets for testing
+
+SUPPORT
+-------
+For Python 3 version issues:
+- Check HOW_TO_RUN.md troubleshooting section
+- Verify Python version (must be 3.8+)
+- Confirm all dependencies installed
+
+For scientific/algorithm questions:
+- Refer to original PartitionFinder 2 documentation
+- Consult Lanfear et al. (2016) paper
+
+CITATION
+--------
+Please cite the original PartitionFinder 2 paper:
+
+Lanfear, R., Frandsen, P. B., Wright, A. M., Senfeld, T., Calcott, B. (2016)
+PartitionFinder 2: new methods for selecting partitioned models of evolution
+for molecular and morphological phylogenetic analyses.
+Molecular Biology and Evolution. DOI: 10.1093/molbev/msw260
+
+LICENSE
+-------
+This software is distributed under GPL v3 license, same as the original.
+See LICENSE file for complete terms.
+
+CREDITS
+-------
+Original PartitionFinder 2:
+  Robert Lanfear, Paul B. Frandsen, Alyssa M. Wright,
+  Tara Senfeld, Brett Calcott (2016)
+
+Python 3 Modernization:
+  December 2025
+
+===============================================================================
+READY TO USE - See HOW_TO_RUN.md to get started!
+===============================================================================
