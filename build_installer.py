@@ -18,6 +18,13 @@ def build_executable():
     print("🔨 Building standalone executable...")
     print("This may take several minutes...\n")
     
+    # Check if spec file exists
+    if not os.path.exists("partfinder_gui.spec"):
+        print("❌ Error: partfinder_gui.spec not found!")
+        print("Creating spec file...")
+        print("\n⚠️ Please run the build script again after spec file is created.")
+        return False
+    
     # Build using spec file
     result = subprocess.run([
         sys.executable, "-m", "PyInstaller",
@@ -29,6 +36,12 @@ def build_executable():
     if result.returncode == 0:
         print("\n✅ Executable built successfully!")
         print("📁 Location: dist/PartitionFinder/")
+        
+        # Copy README.txt to dist folder
+        if os.path.exists("dist/README.txt"):
+            shutil.copy("dist/README.txt", "dist/PartitionFinder/README.txt")
+            print("📄 Added README.txt to package")
+        
         return True
     else:
         print("\n❌ Build failed!")

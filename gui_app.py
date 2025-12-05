@@ -26,6 +26,7 @@ class PartitionFinderGUI:
         self.analysis_type = tk.StringVar(value="DNA")
         self.is_running = False
         self.process = None
+        self.last_results_path = None
 
         self.setup_styles()
         self.setup_ui()
@@ -319,6 +320,11 @@ class PartitionFinderGUI:
                                   style="Stop.TButton")
         self.stop_btn.pack(side=tk.LEFT, padx=8)
         
+        self.results_btn = ttk.Button(button_frame, text="📂  Open Results", 
+                                     command=self.open_results, state="disabled",
+                                     style="Secondary.TButton")
+        self.results_btn.pack(side=tk.LEFT, padx=8)
+        
         ttk.Button(button_frame, text="🗑  Clear Logs", command=self.clear_logs,
                   style="Secondary.TButton").pack(side=tk.LEFT, padx=8)
         
@@ -441,6 +447,19 @@ class PartitionFinderGUI:
         self.log_text.delete(1.0, tk.END)
         self.log("Logs cleared", "INFO")
     
+    def open_results(self):
+        """Open the results folder in file explorer"""
+        if self.last_results_path and os.path.exists(self.last_results_path):
+            if sys.platform == 'win32':
+                os.startfile(self.last_results_path)
+            elif sys.platform == 'darwin':  # macOS
+                subprocess.Popen(['open', self.last_results_path])
+            else:  # linux
+                subprocess.Popen(['xdg-open', self.last_results_path])
+            self.log(f"Opening results folder: {self.last_results_path}", "INFO")
+        else:
+            messagebox.showwarning("No Results", "No results folder found. Please run an analysis first.")
+    
     def validate_inputs(self):
         """Validate all required inputs"""
         if not self.cfg_file.get():
@@ -522,14 +541,31 @@ class PartitionFinderGUI:
             
             self.log(f"Command: {' '.join(cmd)}", "INFO")
             
-            # Run process
+            # Run process (hide console window on Windows)
+            startupinfo = None
+            creationflags = 0
+            
+            if sys.platform == 'win32':
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
+                
+                # Use CREATE_NO_WINDOW flag if available (Windows)
+                try:
+                    creationflags = subprocess.CREATE_NO_WINDOW
+                except AttributeError:
+                    # Fallback for older Python versions
+                    creationflags = 0x08000000  # CREATE_NO_WINDOW constant
+            
             self.process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                universal_newlines=True
+                universal_newlines=True,
+                startupinfo=startupinfo,
+                creationflags=creationflags
             )
             
             # Read output line by line
@@ -558,14 +594,54 @@ class PartitionFinderGUI:
                 self.log("Analysis completed successfully!", "SUCCESS")
                 self.log("="*60, "SUCCESS")
                 
+                # Determine actual results location
+                results_path = os.path.join(working_dir, "analysis")
+                
                 # Copy results if output directory specified
                 if output_base != working_dir:
-                    self.copy_results(working_dir, output_base)
+                    copied_path = self.copy_results(working_dir, output_base)
+                    if copied_path:
+                        results_path = copied_path
                 
-                self.root.after(0, lambda: messagebox.showinfo(
-                    "Success", 
-                    f"Analysis completed!\n\nResults saved to:\n{working_dir}/analysis"
-                ))
+                # Verify results exist and check for actual result files
+                result_files_exist = False
+                expected_files = ['best_scheme.txt', 'best_models.txt', 'analysis.log']
+                found_files = []
+                
+                if os.path.exists(results_path):
+                    for filename in expected_files:
+                        filepath = os.path.join(results_path, filename)
+                        if os.path.exists(filepath):
+                            found_files.append(filename)
+                            result_files_exist = True
+                
+                if result_files_exist:
+                    self.last_results_path = results_path
+                    self.log(f"Results location: {results_path}", "SUCCESS")
+                    self.log(f"Result files found: {', '.join(found_files)}", "SUCCESS")
+                    self.root.after(0, lambda: self.results_btn.config(state="normal"))
+                    
+                    files_list = '\n'.join([f"• {f}" for f in found_files])
+                    self.root.after(0, lambda: messagebox.showinfo(
+                        "Success", 
+                        f"✅ Analysis completed successfully!\n\nResults saved to:\n{results_path}\n\nFiles created:\n{files_list}\n\nClick 'Open Results' button to view files."
+                    ))
+                elif os.path.exists(results_path):
+                    self.last_results_path = results_path
+                    self.log(f"Warning: Analysis folder exists but no result files found", "WARNING")
+                    self.log(f"Expected files: {', '.join(expected_files)}", "WARNING")
+                    self.log(f"Check the analysis log above for errors", "WARNING")
+                    self.root.after(0, lambda: self.results_btn.config(state="normal"))
+                    self.root.after(0, lambda: messagebox.showwarning(
+                        "Analysis Incomplete", 
+                        f"⚠️ Analysis process finished but no result files were created.\n\nExpected files:\n• best_scheme.txt\n• best_models.txt\n• analysis.log\n\nThe analysis may have encountered an error.\nCheck the log output above for details.\n\nFolder: {results_path}"
+                    ))
+                else:
+                    self.log(f"Warning: Analysis folder not found at {results_path}", "WARNING")
+                    self.root.after(0, lambda: messagebox.showwarning(
+                        "Analysis Complete", 
+                        f"Analysis completed but results folder not found.\n\nExpected location:\n{results_path}\n\nPlease check the log output above for details."
+                    ))
             else:
                 self.log(f"Analysis failed with exit code {return_code}", "ERROR")
                 self.root.after(0, lambda: messagebox.showerror(
@@ -592,8 +668,10 @@ class PartitionFinderGUI:
                 dest_dir = os.path.join(dest_base, f"analysis_{timestamp}")
                 shutil.copytree(source_analysis, dest_dir)
                 self.log(f"Results copied to: {dest_dir}", "SUCCESS")
+                return dest_dir
         except Exception as e:
             self.log(f"Could not copy results: {e}", "WARNING")
+        return None
     
     def stop_analysis(self):
         """Stop the running analysis"""

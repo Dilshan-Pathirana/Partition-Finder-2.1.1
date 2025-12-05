@@ -379,44 +379,111 @@ class Alignment(object):
         import re
         import tempfile
         
+        log.info("Converting NEXUS file: %s", nexus_path)
+        
         # Read NEXUS file
         with open(nexus_path, 'r') as f:
             content = f.read()
         
-        # Find the MATRIX block
-        matrix_match = re.search(r'MATRIX\s+(.*?);', content, re.DOTALL | re.IGNORECASE)
+        log.debug("NEXUS file size: %d bytes", len(content))
+        
+        # Find the MATRIX block - be more precise about what comes after MATRIX
+        # Look for MATRIX keyword followed by actual sequence data (not just comments)
+        matrix_match = None
+        
+        # Try to find MATRIX followed by sequence data until END or ;
+        # Pattern 1: MATRIX in DATA or CHARACTERS block
+        pattern1 = r'BEGIN\s+(DATA|CHARACTERS)\s*;.*?MATRIX\s*\n(.*?)(?:\n\s*END\s*;|\n\s*ENDBLOCK\s*;)'
+        matrix_match = re.search(pattern1, content, re.DOTALL | re.IGNORECASE)
+        
+        if not matrix_match:
+            # Pattern 2: Just MATRIX keyword
+            pattern2 = r'MATRIX\s*\n(.*?)(?:\n\s*;|\n\s*END\s*;|\n\s*ENDBLOCK\s*;)'
+            matrix_match = re.search(pattern2, content, re.DOTALL | re.IGNORECASE)
+        
         if not matrix_match:
             log.error("No MATRIX block found in NEXUS file")
+            log.error("File content preview: %s", content[:1000])
             raise AlignmentError
         
-        matrix_text = matrix_match.group(1)
+        # Get the matrix text (group 2 for pattern1, group 1 for pattern2)
+        matrix_text = matrix_match.group(2) if matrix_match.lastindex == 2 else matrix_match.group(1)
         
-        # Parse sequences
+        log.debug("Matrix block found, length: %d bytes", len(matrix_text))
+        
+        # Parse sequences - handle both sequential and interleaved formats
         sequences = {}
-        for line in matrix_text.strip().split('\n'):
+        lines = matrix_text.strip().split('\n')
+        
+        log.debug("Processing %d lines from matrix block", len(lines))
+        
+        for line_num, line in enumerate(lines, 1):
+            original_line = line
             line = line.strip()
+            
+            # Remove inline comments [like this]
+            line = re.sub(r'\[.*?\]', '', line).strip()
+            
+            # Skip empty lines after comment removal
             if not line:
+                continue
+            
+            # Skip lines that look like the end marker
+            if line.upper().startswith('END') or line == ';':
                 continue
             
             # Split on whitespace - first part is name, rest is sequence
             parts = line.split(None, 1)
-            if len(parts) == 2:
-                name, seq = parts
-                seq = seq.replace(' ', '').replace('\t', '')
+            if len(parts) >= 2:
+                name, seq = parts[0], parts[1]
+                # Remove all whitespace and special characters from sequence
+                seq = re.sub(r'[^A-Za-z\-\?]', '', seq)
                 
                 if name in sequences:
                     sequences[name] += seq  # Append for interleaved format
                 else:
                     sequences[name] = seq
+            elif len(parts) == 1 and parts[0]:
+                # Might be continuation of previous sequence (some NEXUS formats)
+                seq = re.sub(r'[^A-Za-z\-\?]', '', parts[0])
+                if sequences and seq:
+                    # Add to last sequence
+                    last_name = list(sequences.keys())[-1]
+                    sequences[last_name] += seq
+        
+        # Check if we got any sequences
+        if not sequences:
+            log.error("No sequences found in NEXUS MATRIX block")
+            log.error("Matrix text was: %s", matrix_text[:1000])
+            log.error("Lines processed: %d", len(lines))
+            log.error("Please check if your NEXUS file has the correct format:")
+            log.error("  - Should have 'BEGIN DATA;' or 'BEGIN CHARACTERS;'")
+            log.error("  - Should have 'MATRIX' keyword")
+            log.error("  - Should have sequences in format: TaxonName ACGT...")
+            log.error("  - Should end with 'END;' or ';'")
+            raise AlignmentError
+        
+        log.info("Parsed %d sequences from NEXUS file", len(sequences))
+        log.debug("Sequence names: %s", list(sequences.keys())[:10])
         
         # Create temporary phylip file in same directory as original
         base_dir = os.path.dirname(nexus_path)
         base_name = os.path.splitext(os.path.basename(nexus_path))[0]
         temp_phylip = os.path.join(base_dir, f"{base_name}_temp.phy")
         
+        # Validate sequences
+        if not sequences:
+            log.error("No sequences extracted from NEXUS file")
+            raise AlignmentError
+        
+        # Check all sequences are same length
+        seq_lengths = [len(seq) for seq in sequences.values()]
+        if len(set(seq_lengths)) > 1:
+            log.warning("Sequences have different lengths: %s", seq_lengths)
+        
         # Write phylip format
         num_seqs = len(sequences)
-        seq_length = len(next(iter(sequences.values())))
+        seq_length = len(list(sequences.values())[0])
         
         with open(temp_phylip, 'w') as f:
             f.write(f"{num_seqs} {seq_length}\n")
