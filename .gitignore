@@ -21,6 +21,10 @@ dist/
 venv/
 env/
 ENV/
+.venv/
+
+# Local scratch folders
+.tmp_baseline/
 
 # IDE
 .idea/

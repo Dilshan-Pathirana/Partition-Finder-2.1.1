@@ -1,0 +1,41 @@
+{
+  "aminoacid": {
+    "script": "PartitionFinderProtein.py",
+    "args": ["-f", "-n", "-p", "1"],
+    "input_dir": "examples/aminoacid",
+    "expected": {
+      "scheme_name": "step_1",
+      "lnl": -2813.305419921875,
+      "criterion": "aicc",
+      "criterion_value": 5642.764031333112,
+      "num_subsets": 2,
+      "subset_best_models": ["LG+G", "WAG+G"]
+    }
+  },
+  "morphology": {
+    "script": "PartitionFinderMorphology.py",
+    "args": ["-f", "-n", "-p", "1", "--raxml"],
+    "input_dir": "examples/morphology",
+    "expected": {
+      "scheme_name": "final_scheme",
+      "lnl": -7183.594970703125,
+      "criterion": "bic",
+      "criterion_value": 15421.707473346036,
+      "num_subsets": 2,
+      "subset_best_models": ["MULTISTATE+G", "MULTISTATE+G"]
+    }
+  },
+  "nucleotide": {
+    "script": "PartitionFinder.py",
+    "args": ["-f", "-n", "-p", "1"],
+    "input_dir": "examples/nucleotide",
+    "expected": {
+      "scheme_name": "start_scheme",
+      "lnl": -9159.64566040039,
+      "criterion": "aicc",
+      "criterion_value": 18472.411247000044,
+      "num_subsets": 5,
+      "subset_best_models": ["GTR+G", "GTR+G", "GTR+G", "HKY+I", "HKY+G"]
+    }
+  }
+}

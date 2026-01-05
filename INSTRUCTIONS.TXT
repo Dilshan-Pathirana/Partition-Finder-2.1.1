@@ -1,0 +1,286 @@
+Instruction: Modernization of PartitionFinder into a React-Based Platform
+Objective
+
+Modernize PartitionFinder 2.1.1 (Python 3 Edition) into a high-performance, user-friendly, React-based platform while preserving scientific correctness, reproducibility, and community trust.
+
+The work must proceed in strict phases.
+No phase may begin until the previous phase’s acceptance criteria are met.
+
+Phase 1 — Stabilization & Scientific Baseline
+Goal
+
+Freeze a scientifically trusted baseline named:
+
+PartitionFinder 2.1.1-py3
+
+This version serves as the immutable reference for all future development.
+
+Required Actions
+
+Tag a Stable Release
+
+Create a Git tag: v2.1.1-py3
+
+No functional changes allowed after tagging
+
+Regression Test Suite
+
+Add automated regression tests using existing example datasets
+
+Tests must verify:
+
+Best partition scheme
+
+Best models per partition
+
+Scoring metrics (AIC, AICc, BIC)
+
+Output comparisons must allow for floating-point tolerance only
+
+Numerical Equivalence Verification
+
+Compare results against:
+
+Original PartitionFinder 2 (Python 2)
+
+Document:
+
+Any deviations
+
+Their causes
+
+Why they are scientifically acceptable (if applicable)
+
+Acceptance Criteria
+
+All example datasets reproduce expected results
+
+No regressions relative to original PF2
+
+Release is tagged and documented
+
+This version is never altered except for critical bug fixes
+
+Phase 2 — Internal Refactor (No UI Work)
+Goal
+
+Decouple scientific logic from interfaces and enable stateless execution.
+
+Required Architecture
+
+Refactor the codebase into the following structure:
+
+partitionfinder/
+├── core/
+│   ├── alignment.py      # Alignment parsing and validation
+│   ├── schemes.py        # Partition scheme generation
+│   ├── scoring.py        # Model scoring and selection
+│   └── runners.py        # Execution orchestration
+│
+├── api/
+│   └── service.py        # FastAPI backend
+│
+├── cli/                  # CLI interface (thin wrapper)
+├── gui/                  # Legacy GUI (maintained, not extended)
+
+Core Design Requirements
+
+All scientific logic must live in core/
+
+No direct file I/O inside core logic unless explicitly required
+
+All functions must be callable programmatically
+
+Execution must be stateless and reproducible
+
+Acceptance Criteria
+
+CLI and GUI call the same core functions
+
+Core can be invoked without CLI/GUI
+
+No scientific behavior changes
+
+Phase 2.2 — Backend API (Local First)
+Goal
+
+Introduce a FastAPI backend to replace CLI execution and support future React integration.
+
+Backend Requirements
+
+Framework
+
+FastAPI
+
+Pydantic for data validation
+
+Responsibilities
+
+Job submission
+
+Progress tracking
+
+Result retrieval
+
+Log streaming
+
+Mandatory Endpoints
+
+POST   /jobs              # Submit analysis
+GET    /jobs/{id}/status  # Job state
+GET    /jobs/{id}/results # Final results
+WS     /jobs/{id}/stream  # Live logs & progress
+
+
+Execution Model
+
+Runs locally by default
+
+Stateless job handling
+
+File-system based persistence (initially)
+
+Acceptance Criteria
+
+CLI replaced by API internally
+
+API can run analyses end-to-end
+
+API produces identical results to Phase 1
+
+Phase 3 — React UI (User-Facing Modernization)
+Goal
+
+Deliver a clean, guided, modern UI for biologists with minimal technical exposure.
+
+UX Philosophy (Mandatory)
+
+The UI must follow:
+
+Upload → Configure → Run → Interpret
+
+The UI must:
+
+Guide users step-by-step
+
+Prevent invalid configurations
+
+Hide algorithmic complexity
+
+Emphasize clarity and interpretation
+
+MVP Screens (Required)
+
+Project Dashboard
+
+List analyses
+
+Status indicators
+
+Resume / view results
+
+Data Upload
+
+Alignment upload
+
+Alignment preview
+
+Data block visualization
+
+Configuration Builder
+
+Model selection
+
+Criterion selection (AIC / AICc / BIC)
+
+Scheme search strategy
+
+Live Execution Monitor
+
+Progress bars
+
+Live logs
+
+Estimated completion time
+
+Results Explorer
+
+Best partition scheme visualization
+
+Model comparison plots
+
+Export (TXT / CSV / Nexus)
+
+Technology Requirements
+
+React + TypeScript
+
+REST + WebSocket communication
+
+Plotly or D3 for visualization
+
+Clean, minimal scientific UI design
+
+Acceptance Criteria
+
+UI runs independently of core logic
+
+UI uses API exclusively
+
+All workflows reproducible from UI
+
+Phase 4 — Performance Optimization (Parallel Track)
+Goal
+
+Improve runtime performance without altering scientific results.
+
+Priority Targets
+
+Partition scheme enumeration
+
+Scheme scoring loops
+
+Repeated likelihood evaluations
+
+Optimization Strategy
+
+Introduce Rust modules for computational hotspots
+
+Python remains orchestration layer
+
+Use bindings (e.g., pyo3)
+
+No algorithmic or numerical changes
+
+Acceptance Criteria
+
+Results identical to Phase 1 baseline
+
+Measurable performance improvement
+
+Optimized modules isolated and test-covered
+
+Strategic Positioning (Long-Term Vision)
+
+If executed correctly, this platform becomes:
+
+The modern, user-friendly replacement for legacy PartitionFinder workflows
+
+Enabling:
+
+Student adoption
+
+Lab-wide standardization
+
+Integration with BEAST and IQ-TREE
+
+Eventual replacement of jModelTest workflows
+
+Cloud-native phylogenetics pipelines
+
+Final Rule
+
+Scientific correctness overrides all engineering concerns.
+If any modernization step risks reproducibility, it must be redesigned.
+
+End of Instruction Document

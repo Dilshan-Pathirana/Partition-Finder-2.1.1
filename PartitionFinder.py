@@ -27,42 +27,49 @@ from partfinder import dependencies
 from partfinder import main
 
 if __name__ == "__main__":
+    # If any CLI args are provided, behave like the original PartitionFinder 2
+    # entrypoint (non-interactive):
+    #   python PartitionFinder.py [options] <folder>
+    if len(sys.argv) > 1:
+        sys.exit(main.main("PartitionFinder", "DNA"))
+
+    # Otherwise fall back to the interactive wrapper.
     print("=" * 70)
     print("PartitionFinder - Interactive Mode")
     print("=" * 70)
     print()
-    
+
     # Get NEXUS file path
     nexus_file = input("Enter the path to your NEXUS alignment file: ").strip().strip('"')
     if not os.path.exists(nexus_file):
         print(f"ERROR: File not found: {nexus_file}")
         sys.exit(1)
-    
+
     # Get config file path
     cfg_file = input("Enter the path to your configuration file (.cfg): ").strip().strip('"')
     if not os.path.exists(cfg_file):
         print(f"ERROR: File not found: {cfg_file}")
         sys.exit(1)
-    
+
     # Create output directory
     nexus_basename = os.path.splitext(os.path.basename(nexus_file))[0]
     script_dir = os.path.dirname(os.path.abspath(__file__))
     output_dir = os.path.join(script_dir, "examples", "results", f"{nexus_basename}_results")
-    
+
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
-    
+
     # Copy files to output directory
     nexus_dest = os.path.join(output_dir, os.path.basename(nexus_file))
     cfg_dest = os.path.join(output_dir, "partition_finder.cfg")
-    
+
     shutil.copy2(nexus_file, nexus_dest)
     shutil.copy2(cfg_file, cfg_dest)
-    
+
     # Update config file to point to the copied nexus file
     with open(cfg_dest, 'r') as f:
         cfg_content = f.read()
-    
+
     # Replace alignment path in config
     import re
     cfg_content = re.sub(
@@ -70,10 +77,10 @@ if __name__ == "__main__":
         f'alignment = {os.path.basename(nexus_file)};',
         cfg_content
     )
-    
+
     with open(cfg_dest, 'w') as f:
         f.write(cfg_content)
-    
+
     print()
     print(f"Analysis will be performed in: {output_dir}")
     print(f"Results will be saved in: {os.path.join(output_dir, 'analysis')}")
@@ -81,10 +88,10 @@ if __name__ == "__main__":
     print("Starting analysis...")
     print("=" * 70)
     print()
-    
+
     # Set up sys.argv to pass the folder path to main
     sys.argv = ["PartitionFinder", output_dir, "--no-ml-tree"]
-    
+
     try:
         sys.exit(main.main("PartitionFinder", "DNA"))
     except SystemExit as e:
