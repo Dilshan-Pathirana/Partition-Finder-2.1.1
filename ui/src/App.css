@@ -1,0 +1,20 @@
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 6px 8px;
+  vertical-align: top;
+}
+
+pre {
+  padding: 8px;
+  overflow: auto;
+}
