@@ -30,6 +30,8 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, WebSocket
 from pydantic import BaseModel, Field
 
+import re
+
 from partitionfinder.core import run_folder
 
 
@@ -68,6 +70,13 @@ class JobRequest(BaseModel):
     copy_input: bool = Field(
         default=True,
         description="If true, copy the input folder into an isolated job working dir.",
+    )
+    overrides: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Optional overrides applied to the config (.cfg) in the working folder before running. "
+            "Supported keys: models, model_selection, search, branchlengths."
+        ),
     )
 
 
@@ -186,6 +195,50 @@ def _validate_input_folder(folder_path: Path) -> None:
         )
 
 
+def _find_cfg_file(folder_path: Path) -> Path:
+    preferred = folder_path / "partition_finder.cfg"
+    if preferred.exists() and preferred.is_file():
+        return preferred
+    cfg_files = sorted(p for p in folder_path.glob("*.cfg") if p.is_file())
+    if not cfg_files:
+        raise ValueError(
+            f"No .cfg file found in {folder_path}. PartitionFinder requires a partition_finder.cfg file."
+        )
+    return cfg_files[0]
+
+
+def _apply_cfg_overrides(cfg_path: Path, overrides: dict[str, str]) -> None:
+    if not overrides:
+        return
+
+    allowed = {"models", "model_selection", "search", "branchlengths"}
+    unknown = sorted(set(overrides) - allowed)
+    if unknown:
+        raise ValueError(f"Unsupported override keys: {', '.join(unknown)}")
+
+    text = cfg_path.read_text(encoding="utf-8", errors="replace")
+    original = text
+
+    def replace_kv(key: str, value: str) -> None:
+        nonlocal text
+        # Replace the first occurrence of `key = ...;` (case-insensitive, line-based).
+        pattern = re.compile(rf"^\s*{re.escape(key)}\s*=\s*.*?;\s*$", re.IGNORECASE | re.MULTILINE)
+        repl = f"{key} = {value};"
+        if pattern.search(text):
+            text = pattern.sub(repl, text, count=1)
+        else:
+            # If the key wasn't found, append a new assignment at the end.
+            if not text.endswith("\n"):
+                text += "\n"
+            text += repl + "\n"
+
+    for k, v in overrides.items():
+        replace_kv(k, v)
+
+    if text != original:
+        cfg_path.write_text(text, encoding="utf-8")
+
+
 def _run_job(job_id: str) -> None:
     meta = store.read_meta(job_id)
 
@@ -263,6 +316,11 @@ def submit_job(req: JobRequest) -> str:
         _copy_folder(src, working)
     else:
         working = src
+
+    # Apply configuration overrides inside the working folder.
+    if req.overrides:
+        cfg_path = _find_cfg_file(working)
+        _apply_cfg_overrides(cfg_path, req.overrides)
 
     now = _utc_now_iso()
     meta = JobMetadata(
