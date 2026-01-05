@@ -11,10 +11,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 
-# Add the partfinder directory to the path so imports work
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'partfinder'))
-
-from partfinder import main as pf_main
+from partitionfinder.core import run_folder
 
 
 class PartitionFinderGUI:
@@ -179,17 +176,8 @@ class PartitionFinderGUI:
             self.log(f"Results will be saved in: {os.path.join(output_dir, 'analysis')}")
             self.log(f"{'='*60}\n")
             
-            # Set up sys.argv and run analysis
-            original_argv = sys.argv
-            sys.argv = ["PartitionFinder", output_dir, "--no-ml-tree"]
-            
-            # Add partfinder directory to sys.path for module imports
-            partfinder_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'partfinder')
-            if partfinder_dir not in sys.path:
-                sys.path.insert(0, partfinder_dir)
-            
             try:
-                result = pf_main.main("PartitionFinder", "DNA")
+                result = run_folder(output_dir, datatype="DNA", passed_args=["--no-ml-tree"], name="PartitionFinder")
                 
                 if result == 0 or result is None:
                     self.log(f"\n{'='*60}")
@@ -225,7 +213,7 @@ class PartitionFinderGUI:
                 self.root.after(0, lambda: messagebox.showerror("Error", f"Analysis failed:\n{str(e)}"))
                 
             finally:
-                sys.argv = original_argv
+                pass
                 
         except Exception as e:
             self.log(f"\n✗ Setup error: {str(e)}")

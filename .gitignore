@@ -25,6 +25,7 @@ ENV/
 
 # Local scratch folders
 .tmp_baseline/
+.pf_jobs/
 
 # IDE
 .idea/

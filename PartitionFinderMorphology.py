@@ -17,14 +17,9 @@
 # and conditions as well.
 
 import sys
-import os
 
-# Add the partfinder directory to the path so imports work
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'partfinder'))
-
-from partfinder import dependencies
-from partfinder import main
+from partitionfinder.core import run_folder
 
 if __name__ == "__main__":
     # Well behaved unix programs exits with 0 on success...
-    sys.exit(main.main("PartitionFinderMorphology", "morphology"))
+    sys.exit(run_folder(sys.argv[-1], datatype="morphology", passed_args=sys.argv[1:-1], name="PartitionFinderMorphology"))

@@ -20,18 +20,15 @@ import sys
 import os
 import shutil
 
-# Add the partfinder directory to the path so imports work
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'partfinder'))
-
-from partfinder import dependencies
-from partfinder import main
+from partitionfinder.core import run_folder
 
 if __name__ == "__main__":
     # If any CLI args are provided, behave like the original PartitionFinder 2
     # entrypoint (non-interactive):
     #   python PartitionFinder.py [options] <folder>
     if len(sys.argv) > 1:
-        sys.exit(main.main("PartitionFinder", "DNA"))
+        # Forward CLI args to the core runner.
+        sys.exit(run_folder(sys.argv[-1], datatype="DNA", passed_args=sys.argv[1:-1], name="PartitionFinder"))
 
     # Otherwise fall back to the interactive wrapper.
     print("=" * 70)
@@ -93,6 +90,6 @@ if __name__ == "__main__":
     sys.argv = ["PartitionFinder", output_dir, "--no-ml-tree"]
 
     try:
-        sys.exit(main.main("PartitionFinder", "DNA"))
+        sys.exit(run_folder(output_dir, datatype="DNA", passed_args=["--no-ml-tree"], name="PartitionFinder"))
     except SystemExit as e:
         sys.exit(e.code if e.code is not None else 0)

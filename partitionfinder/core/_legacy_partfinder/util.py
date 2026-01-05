@@ -26,6 +26,11 @@ import shutil
 from math import log as logarithm
 
 
+# Optional override set by config.Config.find_programs(). When set, binaries are
+# expected to live in this directory.
+program_path = None
+
+
 # Base error class
 class PartitionFinderError(Exception):
     pass
@@ -47,13 +52,16 @@ your alignment. Please check and try again.
 
 def find_program(binary_name):
     """Locate the binary ..."""
-    pth = os.path.abspath(__file__)
+    if program_path:
+        pth = os.path.normpath(os.path.join(program_path, binary_name))
+    else:
+        pth = os.path.abspath(__file__)
 
-    # Split off the name and the directory...
-    pth, notused = os.path.split(pth)
-    pth, notused = os.path.split(pth)
-    pth = os.path.join(pth, "programs", binary_name)
-    pth = os.path.normpath(pth)
+        # Split off the name and the directory...
+        pth, notused = os.path.split(pth)
+        pth, notused = os.path.split(pth)
+        pth = os.path.join(pth, "programs", binary_name)
+        pth = os.path.normpath(pth)
 
     log.debug("Checking for program %s", binary_name)
     if not os.path.exists(pth) or not os.path.isfile(pth):

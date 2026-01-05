@@ -211,16 +211,37 @@ class Configuration(object):
             raise ConfigurationError
 
     def find_programs(self):
-        pth = os.path.abspath(__file__)
-        # Split off the name and the directory...
-        pth, notused = os.path.split(pth)
-        pth, notused = os.path.split(pth)
-        pth = os.path.join(pth, "programs")
-        pth = os.path.normpath(pth)
-        self.program_path = pth
+        # Historically PartitionFinder located bundled binaries in
+        # <repo_root>/programs. During Phase 2 refactors the core engine may
+        # move deeper in the tree, so we search upwards for a 'programs'
+        # directory.
+        here = os.path.abspath(__file__)
+        pth = os.path.dirname(here)
+
+        found = None
+        while True:
+            candidate = os.path.normpath(os.path.join(pth, "programs"))
+            if os.path.isdir(candidate):
+                found = candidate
+                break
+
+            parent = os.path.dirname(pth)
+            if parent == pth:
+                break
+            pth = parent
+
+        if found is None:
+            # Fall back to the historical behavior (two levels up) so we
+            # preserve failure modes if the repo is malformed.
+            pth = os.path.abspath(__file__)
+            pth, notused = os.path.split(pth)
+            pth, notused = os.path.split(pth)
+            found = os.path.normpath(os.path.join(pth, "programs"))
+
+        self.program_path = found
 
         # TODO This is bullshit---Need to make the config global
-        util.program_path = pth
+        util.program_path = found
         log.info("Program path is here %s", self.program_path)
 
     def reset(self):
