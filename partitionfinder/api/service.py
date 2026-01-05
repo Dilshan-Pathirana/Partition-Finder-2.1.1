@@ -90,6 +90,7 @@ class JobResultsResponse(BaseModel):
     id: str
     state: JobState
     best_scheme_txt: Optional[str] = None
+    scheme_data_csv: Optional[str] = None
     analysis_path: Optional[str] = None
 
 
@@ -289,6 +290,18 @@ def get_best_scheme_txt(meta: JobMetadata) -> Optional[str]:
     return None
 
 
+def get_scheme_data_csv(meta: JobMetadata) -> Optional[str]:
+    analysis_dir = Path(meta.working_folder) / "analysis"
+    if not analysis_dir.exists():
+        return None
+    # Legacy reporter writes scheme_data.csv under cfg.schemes_path. We locate it
+    # defensively for compatibility across search strategies.
+    for p in analysis_dir.rglob("scheme_data.csv"):
+        if p.is_file():
+            return p.read_text(encoding="utf-8", errors="replace")
+    return None
+
+
 def list_jobs(*, limit: int = 50) -> list[JobMetadata]:
     """List known jobs from the filesystem store.
 
@@ -363,10 +376,12 @@ def get_job_results(job_id: str) -> JobResultsResponse:
 
     analysis_path = str(Path(meta.working_folder) / "analysis")
     best_scheme_txt = get_best_scheme_txt(meta)
+    scheme_data_csv = get_scheme_data_csv(meta)
     return JobResultsResponse(
         id=meta.id,
         state=meta.state,
         best_scheme_txt=best_scheme_txt,
+        scheme_data_csv=scheme_data_csv,
         analysis_path=analysis_path if Path(analysis_path).exists() else None,
     )
 
@@ -451,5 +466,6 @@ def submit_and_wait(req: JobRequest, *, poll_interval_s: float = 0.5) -> JobResu
         id=meta.id,
         state=meta.state,
         best_scheme_txt=get_best_scheme_txt(meta),
+        scheme_data_csv=get_scheme_data_csv(meta),
         analysis_path=str(Path(meta.working_folder) / "analysis"),
     )
