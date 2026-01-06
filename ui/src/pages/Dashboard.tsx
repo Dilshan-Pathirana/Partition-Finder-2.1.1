@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { deleteJob, listJobs } from '../api/client'
 import type { JobStatusResponse } from '../api/types'
+import Button from '../components/ui/Button'
+import { Card, CardBody, CardHeader } from '../components/ui/Card'
+import Badge from '../components/ui/Badge'
 
 export default function DashboardPage() {
   const [jobs, setJobs] = useState<JobStatusResponse[]>([])
@@ -54,64 +57,118 @@ export default function DashboardPage() {
   }
 
   return (
-    <div>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h1>PartitionFinder</h1>
-        <Link to="/new/upload">New analysis</Link>
-      </header>
-
-      <section>
-        <h2>Project dashboard</h2>
-        {avgSeconds != null && (
-          <p>
-            Typical runtime estimate: ~{Math.max(1, Math.round(avgSeconds))}s (based on previous
-            completed jobs)
+    <div className="grid gap-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">Project dashboard</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Create and monitor PartitionFinder analyses.
           </p>
-        )}
-        <button onClick={refresh} disabled={busy}>
-          Refresh
-        </button>
-        {error && <p style={{ whiteSpace: 'pre-wrap' }}>{error}</p>}
+        </div>
+        <div className="flex items-center gap-2">
+          <Link to="/new/upload">
+            <Button>New analysis</Button>
+          </Link>
+          <Button variant="secondary" onClick={refresh} disabled={busy}>
+            {busy ? 'Refreshing…' : 'Refresh'}
+          </Button>
+        </div>
+      </div>
 
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', textAlign: 'left' }}>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Status</th>
-                <th>Datatype</th>
-                <th>Updated</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {jobs.length === 0 ? (
+      {avgSeconds != null && (
+        <Card>
+          <CardBody className="text-sm text-slate-700">
+            Typical runtime estimate:{' '}
+            <span className="font-medium text-slate-900">
+              ~{Math.max(1, Math.round(avgSeconds))}s
+            </span>{' '}
+            <span className="text-slate-500">(based on previous completed jobs)</span>
+          </CardBody>
+        </Card>
+      )}
+
+      {error && (
+        <Card>
+          <CardHeader title="Error" />
+          <CardBody>
+            <pre className="whitespace-pre-wrap text-sm text-red-700">{error}</pre>
+          </CardBody>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader
+          title="Analyses"
+          subtitle={jobs.length === 0 ? 'No analyses yet.' : `Showing up to ${jobs.length} jobs.`}
+        />
+        <CardBody>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <td colSpan={5}>No analyses yet.</td>
+                  <th className="py-2 pr-4">ID</th>
+                  <th className="py-2 pr-4">Status</th>
+                  <th className="py-2 pr-4">Datatype</th>
+                  <th className="py-2 pr-4">Updated</th>
+                  <th className="py-2">Actions</th>
                 </tr>
-              ) : (
-                jobs.map((j) => (
-                  <tr key={j.id}>
-                    <td style={{ fontFamily: 'monospace' }}>{j.id.slice(0, 8)}</td>
-                    <td>{j.state}</td>
-                    <td>{j.datatype ?? '-'}</td>
-                    <td>{j.updated_at}</td>
-                    <td>
-                      <Link to={`/jobs/${j.id}/monitor`}>Monitor</Link>
-                      {' | '}
-                      <Link to={`/jobs/${j.id}/results`}>Results</Link>
-                      {' | '}
-                      <button onClick={() => void onDelete(j.id)} disabled={j.state === 'running'}>
-                        Delete
-                      </button>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {jobs.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-6 text-slate-500">
+                      No analyses yet.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+                ) : (
+                  jobs.map((j) => (
+                    <tr key={j.id} className="hover:bg-slate-50">
+                      <td className="py-3 pr-4 font-mono text-slate-900">{j.id.slice(0, 8)}</td>
+                      <td className="py-3 pr-4">
+                        <Badge
+                          tone={
+                            j.state === 'succeeded'
+                              ? 'teal'
+                              : j.state === 'failed'
+                                ? 'red'
+                                : 'slate'
+                          }
+                        >
+                          {j.state}
+                        </Badge>
+                      </td>
+                      <td className="py-3 pr-4 text-slate-700">{j.datatype ?? '—'}</td>
+                      <td className="py-3 pr-4 text-slate-600">{j.updated_at}</td>
+                      <td className="py-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link to={`/jobs/${j.id}/monitor`}>
+                            <Button size="sm" variant="outline">
+                              Monitor
+                            </Button>
+                          </Link>
+                          <Link to={`/jobs/${j.id}/results`}>
+                            <Button size="sm" variant="outline">
+                              Results
+                            </Button>
+                          </Link>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void onDelete(j.id)}
+                            disabled={j.state === 'running'}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardBody>
+      </Card>
     </div>
   )
 }

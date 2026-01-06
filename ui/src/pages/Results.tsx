@@ -3,6 +3,9 @@ import { Link, useParams } from 'react-router-dom'
 import Plot from 'react-plotly.js'
 import { getJobResults } from '../api/client'
 import type { JobResultsResponse } from '../api/types'
+import Button from '../components/ui/Button'
+import { Card, CardBody, CardHeader } from '../components/ui/Card'
+import Badge from '../components/ui/Badge'
 import {
   downloadText,
   extractNexusSetsBlock,
@@ -10,6 +13,7 @@ import {
   parseCharsetsFromNexusBlock,
   parseSchemeDataCsv,
   parseSubsetModelsFromIQtree,
+  type SchemeRow,
 } from '../utils/bestScheme'
 
 export default function ResultsPage() {
@@ -19,9 +23,10 @@ export default function ResultsPage() {
   const [data, setData] = useState<JobResultsResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const [sortKey, setSortKey] = useState<
-    'name' | 'subsets' | 'parameters' | 'lnl' | 'aic' | 'aicc' | 'bic' | 'sites'
-  >('aicc')
+  const bestSchemeTxt = data?.best_scheme_txt ?? null
+  const schemeDataCsv = data?.scheme_data_csv ?? null
+
+  const [sortKey, setSortKey] = useState<keyof SchemeRow>('aicc')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
   useEffect(() => {
@@ -44,19 +49,19 @@ export default function ResultsPage() {
   }, [jobId])
 
   const nexusBlock = useMemo(() => {
-    if (!data?.best_scheme_txt) return null
-    return extractNexusSetsBlock(data.best_scheme_txt)
-  }, [data?.best_scheme_txt])
+    if (!bestSchemeTxt) return null
+    return extractNexusSetsBlock(bestSchemeTxt)
+  }, [bestSchemeTxt])
 
   const bestHeader = useMemo(() => {
-    if (!data?.best_scheme_txt) return null
-    return parseBestSchemeHeader(data.best_scheme_txt)
-  }, [data?.best_scheme_txt])
+    if (!bestSchemeTxt) return null
+    return parseBestSchemeHeader(bestSchemeTxt)
+  }, [bestSchemeTxt])
 
   const subsetModels = useMemo(() => {
-    if (!data?.best_scheme_txt) return []
-    return parseSubsetModelsFromIQtree(data.best_scheme_txt)
-  }, [data?.best_scheme_txt])
+    if (!bestSchemeTxt) return []
+    return parseSubsetModelsFromIQtree(bestSchemeTxt)
+  }, [bestSchemeTxt])
 
   const charsets = useMemo(() => {
     if (!nexusBlock) return []
@@ -64,16 +69,16 @@ export default function ResultsPage() {
   }, [nexusBlock])
 
   const schemeRows = useMemo(() => {
-    if (!data?.scheme_data_csv) return []
-    return parseSchemeDataCsv(data.scheme_data_csv)
-  }, [data?.scheme_data_csv])
+    if (!schemeDataCsv) return []
+    return parseSchemeDataCsv(schemeDataCsv)
+  }, [schemeDataCsv])
 
   const sortedSchemes = useMemo(() => {
     const rows = [...schemeRows]
     const dir = sortDir === 'asc' ? 1 : -1
     rows.sort((a, b) => {
-      const av = (a as any)[sortKey]
-      const bv = (b as any)[sortKey]
+      const av = a[sortKey]
+      const bv = b[sortKey]
       if (typeof av === 'number' && typeof bv === 'number') {
         if (!Number.isFinite(av) && !Number.isFinite(bv)) return 0
         if (!Number.isFinite(av)) return 1
@@ -111,245 +116,317 @@ export default function ResultsPage() {
   }
 
   return (
-    <div>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h1>Results explorer</h1>
-        <Link to="/">Dashboard</Link>
-      </header>
+    <div className="grid gap-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">Results explorer</h1>
+          <p className="mt-1 text-sm text-slate-600">Inspect outputs and export key files.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link to="/">
+            <Button variant="ghost">Dashboard</Button>
+          </Link>
+          <Link to={`/jobs/${jobId}/monitor`}>
+            <Button variant="outline">Monitor</Button>
+          </Link>
+        </div>
+      </div>
 
-      {error && <p style={{ whiteSpace: 'pre-wrap' }}>{error}</p>}
-      {!error && !data && <p>Loading…</p>}
+      {error && (
+        <Card>
+          <CardHeader title="Error" />
+          <CardBody>
+            <pre className="whitespace-pre-wrap text-sm text-red-700">{error}</pre>
+          </CardBody>
+        </Card>
+      )}
+
+      {!error && !data && (
+        <Card>
+          <CardHeader title="Loading" />
+          <CardBody className="text-sm text-slate-600">Fetching results…</CardBody>
+        </Card>
+      )}
 
       {data && (
-        <div style={{ display: 'grid', gap: 12 }}>
-          <div>
-            <strong>Job</strong>: <span style={{ fontFamily: 'monospace' }}>{jobId}</span>
-          </div>
-          <div>
-            <strong>Status</strong>: {data.state}
-          </div>
+        <div className="grid gap-6">
+          <Card>
+            <CardHeader
+              title={
+                <span>
+                  Job <span className="font-mono text-slate-900">{jobId}</span>
+                </span>
+              }
+              right={
+                <Badge tone={data.state === 'succeeded' ? 'teal' : data.state === 'failed' ? 'red' : 'slate'}>
+                  {data.state}
+                </Badge>
+              }
+            />
+            <CardBody className="grid gap-3 text-sm text-slate-700">
+              {data.cpus != null && data.cpus > 1 && (
+                <div>
+                  <span className="font-medium text-slate-900">Parallel run</span>: enabled
+                  <span className="ml-1 text-slate-500">(CPUs={data.cpus})</span>
+                </div>
+              )}
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={exportTxt} disabled={!data.best_scheme_txt}>
-              Export TXT
-            </button>
-            <button onClick={exportCsv} disabled={!data.scheme_data_csv}>
-              Export CSV
-            </button>
-            <button onClick={exportNexus} disabled={!nexusBlock}>
-              Export Nexus
-            </button>
-          </div>
-
-          <section>
-            <h2>Best partition scheme visualization</h2>
-            {charsets.length === 0 ? (
-              <p>Subset definitions not found in best_scheme.txt.</p>
-            ) : (
-              <Plot
-                data={[
-                  {
-                    type: 'bar',
-                    x: charsets.map((c) => c.subset),
-                    y: charsets.map((c) => c.length ?? 0),
-                  },
-                ]}
-                layout={{
-                  title: { text: 'Subset lengths' },
-                  xaxis: { title: { text: 'Subset' } },
-                  yaxis: { title: { text: 'Sites' } },
-                  margin: { t: 40, r: 10, b: 50, l: 50 },
-                }}
-                style={{ width: '100%', height: 320 }}
-                config={{ displayModeBar: false }}
-              />
-            )}
-
-            {nexusBlock && (
-              <div>
-                <h3>Nexus sets block</h3>
-                <pre style={{ whiteSpace: 'pre-wrap' }}>{nexusBlock}</pre>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={exportTxt} disabled={!data.best_scheme_txt}>
+                  Export TXT
+                </Button>
+                <Button onClick={exportCsv} disabled={!data.scheme_data_csv} variant="secondary">
+                  Export CSV
+                </Button>
+                <Button onClick={exportNexus} disabled={!nexusBlock} variant="outline">
+                  Export Nexus
+                </Button>
               </div>
-            )}
-          </section>
+            </CardBody>
+          </Card>
 
-          <section>
-            <h2>Best models per partition</h2>
-            {!data.best_scheme_txt ? (
-              <p>No best_scheme.txt available yet.</p>
-            ) : subsetModels.length === 0 ? (
-              <p>Subset models not found in IQtree sets block.</p>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', textAlign: 'left' }}>
-                  <thead>
-                    <tr>
-                      <th>Subset</th>
-                      <th>Model</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {subsetModels.map((sm) => (
-                      <tr key={sm.subset}>
-                        <td>{sm.subset}</td>
-                        <td style={{ fontFamily: 'monospace' }}>{sm.model}</td>
+          <Card>
+            <CardHeader title="Best partition scheme" subtitle="Subset visualization and Nexus sets block" />
+            <CardBody className="grid gap-4">
+              {charsets.length === 0 ? (
+                <p className="text-sm text-slate-600">Subset definitions not found in best_scheme.txt.</p>
+              ) : (
+                <Plot
+                  data={[
+                    {
+                      type: 'bar',
+                      x: charsets.map((c) => c.subset),
+                      y: charsets.map((c) => c.length ?? 0),
+                    },
+                  ]}
+                  layout={{
+                    title: { text: 'Subset lengths' },
+                    xaxis: { title: { text: 'Subset' } },
+                    yaxis: { title: { text: 'Sites' } },
+                    margin: { t: 40, r: 10, b: 50, l: 50 },
+                  }}
+                  style={{ width: '100%', height: 320 }}
+                  config={{ displayModeBar: false }}
+                />
+              )}
+
+              {nexusBlock && (
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">Nexus sets block</div>
+                  <pre className="mt-2 whitespace-pre-wrap rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800">
+                    {nexusBlock}
+                  </pre>
+                </div>
+              )}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title="Best models per partition" />
+            <CardBody className="grid gap-4">
+              {!data.best_scheme_txt ? (
+                <p className="text-sm text-slate-600">No best_scheme.txt available yet.</p>
+              ) : subsetModels.length === 0 ? (
+                <p className="text-sm text-slate-600">Subset models not found in IQtree sets block.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="py-2 pr-4">Subset</th>
+                        <th className="py-2">Model</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {subsetModels.map((sm) => (
+                        <tr key={sm.subset} className="hover:bg-slate-50">
+                          <td className="py-2 pr-4 text-slate-900">{sm.subset}</td>
+                          <td className="py-2 font-mono text-slate-700">{sm.model}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
-            {bestHeader && (
-              <div style={{ marginTop: 8, display: 'grid', gap: 4 }}>
-                {bestHeader.schemeName && (
-                  <div>
-                    <strong>Best scheme</strong>: {bestHeader.schemeName}
-                  </div>
-                )}
-                {bestHeader.lnl != null && (
-                  <div>
-                    <strong>lnL</strong>: {bestHeader.lnl}
-                  </div>
-                )}
-                {bestHeader.aic != null && (
-                  <div>
-                    <strong>AIC</strong>: {bestHeader.aic}
-                  </div>
-                )}
-                {bestHeader.aicc != null && (
-                  <div>
-                    <strong>AICc</strong>: {bestHeader.aicc}
-                  </div>
-                )}
-                {bestHeader.bic != null && (
-                  <div>
-                    <strong>BIC</strong>: {bestHeader.bic}
-                  </div>
-                )}
-                {bestHeader.parameters != null && (
-                  <div>
-                    <strong>Parameters</strong>: {bestHeader.parameters}
-                  </div>
-                )}
-                {bestHeader.sites != null && (
-                  <div>
-                    <strong>Sites</strong>: {bestHeader.sites}
-                  </div>
-                )}
-                {bestHeader.subsets != null && (
-                  <div>
-                    <strong>Subsets</strong>: {bestHeader.subsets}
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
+              {bestHeader && (
+                <div className="grid gap-1 text-sm text-slate-700">
+                  {bestHeader.schemeName && (
+                    <div>
+                      <span className="font-medium text-slate-900">Best scheme</span>: {bestHeader.schemeName}
+                    </div>
+                  )}
+                  {bestHeader.lnl != null && (
+                    <div>
+                      <span className="font-medium text-slate-900">lnL</span>: {bestHeader.lnl}
+                    </div>
+                  )}
+                  {bestHeader.aic != null && (
+                    <div>
+                      <span className="font-medium text-slate-900">AIC</span>: {bestHeader.aic}
+                    </div>
+                  )}
+                  {bestHeader.aicc != null && (
+                    <div>
+                      <span className="font-medium text-slate-900">AICc</span>: {bestHeader.aicc}
+                    </div>
+                  )}
+                  {bestHeader.bic != null && (
+                    <div>
+                      <span className="font-medium text-slate-900">BIC</span>: {bestHeader.bic}
+                    </div>
+                  )}
+                  {bestHeader.parameters != null && (
+                    <div>
+                      <span className="font-medium text-slate-900">Parameters</span>: {bestHeader.parameters}
+                    </div>
+                  )}
+                  {bestHeader.sites != null && (
+                    <div>
+                      <span className="font-medium text-slate-900">Sites</span>: {bestHeader.sites}
+                    </div>
+                  )}
+                  {bestHeader.subsets != null && (
+                    <div>
+                      <span className="font-medium text-slate-900">Subsets</span>: {bestHeader.subsets}
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardBody>
+          </Card>
 
-          <section>
-            <h2>Model comparison plots</h2>
-            {schemeRows.length === 0 ? (
-              <p>scheme_data.csv not available for this run.</p>
-            ) : (
-              <Plot
-                data={[
-                  {
-                    type: 'scatter',
-                    mode: 'lines+markers',
-                    name: 'AIC',
-                    x: schemeRows.map((r) => r.name),
-                    y: schemeRows.map((r) => r.aic),
-                  },
-                  {
-                    type: 'scatter',
-                    mode: 'lines+markers',
-                    name: 'AICc',
-                    x: schemeRows.map((r) => r.name),
-                    y: schemeRows.map((r) => r.aicc),
-                  },
-                  {
-                    type: 'scatter',
-                    mode: 'lines+markers',
-                    name: 'BIC',
-                    x: schemeRows.map((r) => r.name),
-                    y: schemeRows.map((r) => r.bic),
-                  },
-                ]}
-                layout={{
-                  title: { text: 'Scheme scores' },
-                  xaxis: { title: { text: 'Scheme' } },
-                  yaxis: { title: { text: 'Score' } },
-                  margin: { t: 40, r: 10, b: 80, l: 60 },
-                }}
-                style={{ width: '100%', height: 360 }}
-                config={{ displayModeBar: false }}
-              />
-            )}
-          </section>
+          <Card>
+            <CardHeader title="Model comparison plots" subtitle="AIC / AICc / BIC across schemes" />
+            <CardBody>
+              {schemeRows.length === 0 ? (
+                <p className="text-sm text-slate-600">scheme_data.csv not available for this run.</p>
+              ) : (
+                <Plot
+                  data={[
+                    {
+                      type: 'scatter',
+                      mode: 'lines+markers',
+                      name: 'AIC',
+                      x: schemeRows.map((r) => r.name),
+                      y: schemeRows.map((r) => r.aic),
+                    },
+                    {
+                      type: 'scatter',
+                      mode: 'lines+markers',
+                      name: 'AICc',
+                      x: schemeRows.map((r) => r.name),
+                      y: schemeRows.map((r) => r.aicc),
+                    },
+                    {
+                      type: 'scatter',
+                      mode: 'lines+markers',
+                      name: 'BIC',
+                      x: schemeRows.map((r) => r.name),
+                      y: schemeRows.map((r) => r.bic),
+                    },
+                  ]}
+                  layout={{
+                    title: { text: 'Scheme scores' },
+                    xaxis: { title: { text: 'Scheme' } },
+                    yaxis: { title: { text: 'Score' } },
+                    margin: { t: 40, r: 10, b: 80, l: 60 },
+                  }}
+                  style={{ width: '100%', height: 360 }}
+                  config={{ displayModeBar: false }}
+                />
+              )}
+            </CardBody>
+          </Card>
 
-          <section>
-            <h2>Top schemes</h2>
-            {schemeRows.length === 0 ? (
-              <p>scheme_data.csv not available for this run.</p>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <p>Showing top 25 schemes (click headers to sort).</p>
-                <table style={{ width: '100%', textAlign: 'left' }}>
-                  <thead>
-                    <tr>
-                      <th>
-                        <button onClick={() => toggleSort('name')}>Name</button>
-                      </th>
-                      <th>
-                        <button onClick={() => toggleSort('sites')}>Sites</button>
-                      </th>
-                      <th>
-                        <button onClick={() => toggleSort('lnl')}>lnL</button>
-                      </th>
-                      <th>
-                        <button onClick={() => toggleSort('parameters')}>Params</button>
-                      </th>
-                      <th>
-                        <button onClick={() => toggleSort('subsets')}>Subsets</button>
-                      </th>
-                      <th>
-                        <button onClick={() => toggleSort('aic')}>AIC</button>
-                      </th>
-                      <th>
-                        <button onClick={() => toggleSort('aicc')}>AICc</button>
-                      </th>
-                      <th>
-                        <button onClick={() => toggleSort('bic')}>BIC</button>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedSchemes.map((r) => (
-                      <tr key={r.name}>
-                        <td style={{ fontFamily: 'monospace' }}>{r.name}</td>
-                        <td>{r.sites}</td>
-                        <td>{Number.isFinite(r.lnl) ? r.lnl.toFixed(2) : String(r.lnl)}</td>
-                        <td>{r.parameters}</td>
-                        <td>{r.subsets}</td>
-                        <td>{Number.isFinite(r.aic) ? r.aic.toFixed(2) : String(r.aic)}</td>
-                        <td>{Number.isFinite(r.aicc) ? r.aicc.toFixed(2) : String(r.aicc)}</td>
-                        <td>{Number.isFinite(r.bic) ? r.bic.toFixed(2) : String(r.bic)}</td>
+          <Card>
+            <CardHeader title="Top schemes" subtitle="Showing top 25 schemes (click headers to sort)" />
+            <CardBody>
+              {schemeRows.length === 0 ? (
+                <p className="text-sm text-slate-600">scheme_data.csv not available for this run.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="py-2 pr-2">
+                          <button className="hover:text-slate-800" onClick={() => toggleSort('name')}>
+                            Name
+                          </button>
+                        </th>
+                        <th className="py-2 pr-2">
+                          <button className="hover:text-slate-800" onClick={() => toggleSort('sites')}>
+                            Sites
+                          </button>
+                        </th>
+                        <th className="py-2 pr-2">
+                          <button className="hover:text-slate-800" onClick={() => toggleSort('lnl')}>
+                            lnL
+                          </button>
+                        </th>
+                        <th className="py-2 pr-2">
+                          <button className="hover:text-slate-800" onClick={() => toggleSort('parameters')}>
+                            Params
+                          </button>
+                        </th>
+                        <th className="py-2 pr-2">
+                          <button className="hover:text-slate-800" onClick={() => toggleSort('subsets')}>
+                            Subsets
+                          </button>
+                        </th>
+                        <th className="py-2 pr-2">
+                          <button className="hover:text-slate-800" onClick={() => toggleSort('aic')}>
+                            AIC
+                          </button>
+                        </th>
+                        <th className="py-2 pr-2">
+                          <button className="hover:text-slate-800" onClick={() => toggleSort('aicc')}>
+                            AICc
+                          </button>
+                        </th>
+                        <th className="py-2">
+                          <button className="hover:text-slate-800" onClick={() => toggleSort('bic')}>
+                            BIC
+                          </button>
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {sortedSchemes.map((r) => (
+                        <tr key={r.name} className="hover:bg-slate-50">
+                          <td className="py-2 pr-2 font-mono text-slate-900">{r.name}</td>
+                          <td className="py-2 pr-2 text-slate-700">{r.sites}</td>
+                          <td className="py-2 pr-2 text-slate-700">
+                            {Number.isFinite(r.lnl) ? r.lnl.toFixed(2) : String(r.lnl)}
+                          </td>
+                          <td className="py-2 pr-2 text-slate-700">{r.parameters}</td>
+                          <td className="py-2 pr-2 text-slate-700">{r.subsets}</td>
+                          <td className="py-2 pr-2 text-slate-700">
+                            {Number.isFinite(r.aic) ? r.aic.toFixed(2) : String(r.aic)}
+                          </td>
+                          <td className="py-2 pr-2 text-slate-700">
+                            {Number.isFinite(r.aicc) ? r.aicc.toFixed(2) : String(r.aicc)}
+                          </td>
+                          <td className="py-2 text-slate-700">
+                            {Number.isFinite(r.bic) ? r.bic.toFixed(2) : String(r.bic)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardBody>
+          </Card>
 
-          <section>
-            <h2>Best scheme text</h2>
-            <pre style={{ whiteSpace: 'pre-wrap' }}>{data.best_scheme_txt ?? 'No output yet.'}</pre>
-          </section>
-
-          <div>
-            <Link to={`/jobs/${jobId}/monitor`}>Back to monitor</Link>
-          </div>
+          <Card>
+            <CardHeader title="Best scheme text" />
+            <CardBody>
+              <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800">
+                {data.best_scheme_txt ?? 'No output yet.'}
+              </pre>
+            </CardBody>
+          </Card>
         </div>
       )}
     </div>

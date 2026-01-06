@@ -25,6 +25,15 @@ from util import get_aic, get_aicc, get_bic
 from scipy.stats import chi2 
 from util import PartitionFinderError
 
+try:
+    from partitionfinder.accel import backend as _accel_backend
+    from partitionfinder.accel import subset_list_stats as _accel_subset_list_stats
+    from partitionfinder.accel import subset_list_score as _accel_subset_list_score
+except Exception:  # noqa: BLE001
+    _accel_backend = None
+    _accel_subset_list_stats = None
+    _accel_subset_list_score = None
+
 class AnalysisError(PartitionFinderError):
     pass
 
@@ -162,6 +171,24 @@ def split_subset(a_subset, cluster_list):
 def subset_list_score(list_of_subsets, the_config, alignment):
     """Takes a list of subsets and return the aic, aicc, or bic score"""
 
+    if (
+        _accel_backend is not None
+        and _accel_subset_list_score is not None
+        and _accel_backend() == "rust"
+    ):
+        best_params = [sub.best_params for sub in list_of_subsets]
+        best_lnl = [sub.best_lnl for sub in list_of_subsets]
+        subset_sizes = [len(sub.columns) for sub in list_of_subsets]
+        num_taxa = len(alignment.species)
+        return _accel_subset_list_score(
+            best_params,
+            best_lnl,
+            subset_sizes,
+            num_taxa=num_taxa,
+            branchlengths=the_config.branchlengths,
+            model_selection=the_config.model_selection,
+        )
+
     lnL, sum_k, subs_len = subset_list_stats(list_of_subsets, the_config, alignment)
 
     if the_config.model_selection == 'aic':
@@ -174,6 +201,21 @@ def subset_list_score(list_of_subsets, the_config, alignment):
 
 def subset_list_stats(list_of_subsets, the_config, alignment):
     """Takes a list of subsets and returns the lnL and the number of params"""
+    # Optional Phase 4 acceleration: use Rust if present.
+    if _accel_backend is not None and _accel_subset_list_stats is not None and _accel_backend() == "rust":
+        best_params = [sub.best_params for sub in list_of_subsets]
+        best_lnl = [sub.best_lnl for sub in list_of_subsets]
+        subset_sizes = [len(sub.columns) for sub in list_of_subsets]
+        num_taxa = len(alignment.species)
+        lnL, sum_k, subs_len = _accel_subset_list_stats(
+            best_params,
+            best_lnl,
+            subset_sizes,
+            num_taxa=num_taxa,
+            branchlengths=the_config.branchlengths,
+        )
+        return lnL, sum_k, subs_len
+
     sum_subset_k = 0
     lnL = 0
     subs_len = 0
@@ -181,6 +223,7 @@ def subset_list_stats(list_of_subsets, the_config, alignment):
         sum_subset_k += sub.best_params
         lnL += sub.best_lnl
         subs_len += len(sub.columns)
+
     # Grab the number of species so we know how many params there are
     num_taxa = len(alignment.species)
     # Linked brlens - only one extra parameter per subset

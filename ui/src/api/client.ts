@@ -1,4 +1,5 @@
 import type {
+  FolderBrowseResponse,
   FolderPreviewRequest,
   FolderPreviewResponse,
   JobRequest,
@@ -63,11 +64,17 @@ export async function stopJob(jobId: string): Promise<StopJobResponse> {
 
 export function jobLogWebSocketUrl(jobId: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  // Vite dev server proxies only HTTP. For WebSocket, we connect directly to the API.
-  // Use the current hostname to avoid localhost/IPv6 resolution issues on Windows.
-  let host = window.location.hostname || '127.0.0.1'
-  if (host === 'localhost') host = '127.0.0.1'
-  return `${proto}://${host}:8000/jobs/${encodeURIComponent(jobId)}/stream`
+
+  // Development: Vite dev server proxies only HTTP. For WebSocket, connect directly to the API.
+  // Production: UI + API are served from one port, so use same-origin /api.
+  if (import.meta.env.DEV) {
+    // Use the current hostname to avoid localhost/IPv6 resolution issues on Windows.
+    let host = window.location.hostname || '127.0.0.1'
+    if (host === 'localhost') host = '127.0.0.1'
+    return `${proto}://${host}:8000/jobs/${encodeURIComponent(jobId)}/stream`
+  }
+
+  return `${proto}://${window.location.host}${API_PREFIX}/jobs/${encodeURIComponent(jobId)}/stream`
 }
 
 export async function previewFolder(req: FolderPreviewRequest): Promise<FolderPreviewResponse> {
@@ -75,4 +82,8 @@ export async function previewFolder(req: FolderPreviewRequest): Promise<FolderPr
     method: 'POST',
     body: JSON.stringify(req),
   })
+}
+
+export async function browseFolder(): Promise<FolderBrowseResponse> {
+  return http<FolderBrowseResponse>('/folders/browse')
 }

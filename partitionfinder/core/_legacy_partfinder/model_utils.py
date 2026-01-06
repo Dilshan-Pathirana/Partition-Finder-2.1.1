@@ -44,15 +44,29 @@ def _get_model_param_total_cache():
     # Build a fast lookup: model name -> total param count.
     cache = {}
     try:
-        subset = df[["name", "matrix_params", "basefreq_params", "ratevar_params"]]
-        for name, m, b, r in subset.itertuples(index=False, name=None):
-            try:
-                cache[name] = int(m) + int(b) + int(r)
-            except Exception:
-                # If types are unexpected, fall back to Python's + behavior.
-                cache[name] = m + b + r
+        # New fast path: list-of-dicts loaded from models.csv.
+        if isinstance(df, list):
+            for row in df:
+                if not isinstance(row, dict):
+                    continue
+                name = row.get('name')
+                if not name:
+                    continue
+                m = row.get('matrix_params') or 0
+                b = row.get('basefreq_params') or 0
+                r = row.get('ratevar_params') or 0
+                cache[str(name)] = int(m) + int(b) + int(r)
+        else:
+            # Backwards compatible: DataFrame-like.
+            subset = df[["name", "matrix_params", "basefreq_params", "ratevar_params"]]
+            for name, m, b, r in subset.itertuples(index=False, name=None):
+                try:
+                    cache[name] = int(m) + int(b) + int(r)
+                except Exception:
+                    # If types are unexpected, fall back to Python's + behavior.
+                    cache[name] = m + b + r
     except Exception:
-        # Defensive fallback: in case available_models is not a DataFrame-like.
+        # Defensive fallback.
         cache = {}
 
     _MODEL_PARAM_TOTAL_CACHE = cache

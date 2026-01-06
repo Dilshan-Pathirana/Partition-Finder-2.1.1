@@ -1,23 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-
-export interface ConfigState {
-  datatype: 'DNA' | 'protein' | 'morphology'
-  modelsPreset: string
-  criterion: 'aic' | 'aicc' | 'bic'
-  search: string
-  branchlengths: 'linked' | 'unlinked'
-  cpus: number
-}
-
-export const defaultConfigState: ConfigState = {
-  datatype: 'DNA',
-  modelsPreset: 'all',
-  criterion: 'aicc',
-  search: 'greedy',
-  branchlengths: 'linked',
-  cpus: 1,
-}
+import WorkflowStepper from '../components/layout/WorkflowStepper'
+import Button from '../components/ui/Button'
+import { Card, CardBody, CardHeader } from '../components/ui/Card'
+import { Input, Label, Select } from '../components/ui/Form'
+import type { ConfigState } from '../state/newAnalysis'
 
 export default function ConfigurePage(props: {
   folder: string
@@ -59,100 +46,116 @@ export default function ConfigurePage(props: {
   }
 
   return (
-    <div>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h1>New analysis</h1>
-        <Link to="/new/upload">Back</Link>
-      </header>
-
-      <h2>Configuration builder</h2>
-      <p>Step 2 of 4 — Upload → Configure → Run → Interpret</p>
-
-      <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
-        <label>
-          Datatype
-          <select
-            value={props.state.datatype}
-            onChange={(e) => props.onChange({ ...props.state, datatype: e.target.value as any })}
-          >
-            <option value="DNA">DNA</option>
-            <option value="protein">Protein</option>
-            <option value="morphology">Morphology</option>
-          </select>
-        </label>
-
-        <label>
-          Models of evolution
-          <select
-            value={props.state.modelsPreset}
-            onChange={(e) => props.onChange({ ...props.state, modelsPreset: e.target.value })}
-          >
-            <option value="all">all</option>
-            <option value="allx">allx</option>
-            <option value="mrbayes">mrbayes</option>
-            <option value="beast">beast</option>
-            <option value="gamma">gamma</option>
-            <option value="gammai">gammai</option>
-          </select>
-        </label>
-
-        <label>
-          Criterion selection
-          <select
-            value={props.state.criterion}
-            onChange={(e) => props.onChange({ ...props.state, criterion: e.target.value as any })}
-          >
-            <option value="aic">AIC</option>
-            <option value="aicc">AICc</option>
-            <option value="bic">BIC</option>
-          </select>
-        </label>
-
-        <label>
-          Scheme search strategy
-          <select
-            value={props.state.search}
-            onChange={(e) => props.onChange({ ...props.state, search: e.target.value })}
-          >
-            <option value="greedy">greedy</option>
-            <option value="all">all</option>
-            <option value="user">user</option>
-            <option value="rcluster">rcluster</option>
-            <option value="rclusterf">rclusterf</option>
-            <option value="kmeans">kmeans</option>
-          </select>
-        </label>
-
-        <label>
-          Branchlengths
-          <select
-            value={props.state.branchlengths}
-            onChange={(e) =>
-              props.onChange({ ...props.state, branchlengths: e.target.value as any })
-            }
-          >
-            <option value="linked">linked</option>
-            <option value="unlinked">unlinked</option>
-          </select>
-        </label>
-
-        <label>
-          CPUs (opt-in speedup)
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={props.state.cpus}
-            onChange={(e) => props.onChange({ ...props.state, cpus: Number(e.target.value) })}
-          />
-        </label>
+    <div className="grid gap-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">New analysis</h1>
+          <p className="mt-1 text-sm text-slate-600">Choose PartitionFinder options for this run.</p>
+        </div>
+        <Link to="/new/upload">
+          <Button variant="ghost">Back</Button>
+        </Link>
       </div>
 
-      {error && <p style={{ whiteSpace: 'pre-wrap' }}>{error}</p>}
+      <WorkflowStepper active="configure" />
 
-      <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-        <button onClick={next}>Continue</button>
-      </div>
+      <Card>
+        <CardHeader title="Configuration" subtitle="These settings override the .cfg defaults" />
+        <CardBody className="grid gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Label title="Datatype">
+              <Select
+                value={props.state.datatype}
+                onChange={(e) =>
+                  props.onChange({
+                    ...props.state,
+                    datatype: e.target.value as ConfigState['datatype'],
+                  })
+                }
+              >
+                <option value="DNA">DNA</option>
+                <option value="protein">Protein</option>
+                <option value="morphology">Morphology</option>
+              </Select>
+            </Label>
+
+            <Label title="Models of evolution">
+              <Select
+                value={props.state.modelsPreset}
+                onChange={(e) => props.onChange({ ...props.state, modelsPreset: e.target.value })}
+              >
+                <option value="all">all</option>
+                <option value="allx">allx</option>
+                <option value="mrbayes">mrbayes</option>
+                <option value="beast">beast</option>
+                <option value="gamma">gamma</option>
+                <option value="gammai">gammai</option>
+              </Select>
+            </Label>
+
+            <Label title="Criterion selection">
+              <Select
+                value={props.state.criterion}
+                onChange={(e) =>
+                  props.onChange({
+                    ...props.state,
+                    criterion: e.target.value as ConfigState['criterion'],
+                  })
+                }
+              >
+                <option value="aic">AIC</option>
+                <option value="aicc">AICc</option>
+                <option value="bic">BIC</option>
+              </Select>
+            </Label>
+
+            <Label title="Scheme search strategy">
+              <Select
+                value={props.state.search}
+                onChange={(e) => props.onChange({ ...props.state, search: e.target.value })}
+              >
+                <option value="greedy">greedy</option>
+                <option value="all">all</option>
+                <option value="user">user</option>
+                <option value="rcluster">rcluster</option>
+                <option value="rclusterf">rclusterf</option>
+                <option value="kmeans">kmeans</option>
+              </Select>
+            </Label>
+
+            <Label title="Branchlengths">
+              <Select
+                value={props.state.branchlengths}
+                onChange={(e) =>
+                  props.onChange({
+                    ...props.state,
+                    branchlengths: e.target.value as ConfigState['branchlengths'],
+                  })
+                }
+              >
+                <option value="linked">linked</option>
+                <option value="unlinked">unlinked</option>
+              </Select>
+            </Label>
+
+            <Label title="CPUs (opt-in speedup)" hint="Maps to legacy -p. Set 1 for deterministic single-process runs.">
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                value={props.state.cpus}
+                onChange={(e) => props.onChange({ ...props.state, cpus: Number(e.target.value) })}
+              />
+            </Label>
+          </div>
+
+          {error && <pre className="whitespace-pre-wrap text-sm text-red-700">{error}</pre>}
+
+          <div className="flex items-center justify-end gap-2">
+            <Button onClick={next}>Continue</Button>
+          </div>
+        </CardBody>
+      </Card>
     </div>
   )
 }

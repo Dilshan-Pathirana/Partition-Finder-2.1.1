@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getJobStatus, jobLogWebSocketUrl, listJobs, stopJob } from '../api/client'
 import type { JobState } from '../api/types'
+import Button from '../components/ui/Button'
+import { Card, CardBody, CardHeader } from '../components/ui/Card'
+import Badge from '../components/ui/Badge'
 
 function formatSeconds(s: number): string {
   if (!Number.isFinite(s) || s < 0) return '—'
@@ -19,8 +22,16 @@ export default function MonitorPage() {
   const [error, setError] = useState<string | null>(null)
   const [log, setLog] = useState('')
   const [createdAt, setCreatedAt] = useState<number | null>(null)
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  const [cpus, setCpus] = useState<number | null>(null)
   const [avgSeconds, setAvgSeconds] = useState<number | null>(null)
   const [stopping, setStopping] = useState(false)
+
+  useEffect(() => {
+    const t = window.setInterval(() => setNowMs(Date.now()), 1000)
+    return () => window.clearInterval(t)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -30,8 +41,12 @@ export default function MonitorPage() {
         const s = await getJobStatus(jobId)
         if (cancelled) return
         setState(s.state)
+        setCpus(s.cpus ?? null)
         const created = Date.parse(s.created_at)
         if (Number.isFinite(created)) setCreatedAt(created)
+        const updated = Date.parse(s.updated_at)
+        if (Number.isFinite(updated)) setUpdatedAt(updated)
+        setError(null)
       } catch (e) {
         if (cancelled) return
         setError(e instanceof Error ? e.message : String(e))
@@ -90,13 +105,17 @@ export default function MonitorPage() {
 
   const elapsed = useMemo(() => {
     if (!createdAt) return null
-    return (Date.now() - createdAt) / 1000
-  }, [createdAt])
+    if ((state === 'succeeded' || state === 'failed') && updatedAt && updatedAt >= createdAt) {
+      return (updatedAt - createdAt) / 1000
+    }
+    return (nowMs - createdAt) / 1000
+  }, [createdAt, nowMs, state, updatedAt])
 
   const eta = useMemo(() => {
+    if (state === 'succeeded' || state === 'failed') return 0
     if (elapsed == null || avgSeconds == null) return null
     return Math.max(0, avgSeconds - elapsed)
-  }, [elapsed, avgSeconds])
+  }, [elapsed, avgSeconds, state])
 
   const progressValue = useMemo(() => {
     if (state === 'succeeded' || state === 'failed') return 1
@@ -121,41 +140,102 @@ export default function MonitorPage() {
   }, [jobId])
 
   return (
-    <div>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h1>Execution monitor</h1>
-        <Link to="/">Dashboard</Link>
-      </header>
-
-      {error && <p style={{ whiteSpace: 'pre-wrap' }}>{error}</p>}
-
-      <div style={{ display: 'grid', gap: 8 }}>
+    <div className="grid gap-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <strong>Job</strong>: <span style={{ fontFamily: 'monospace' }}>{jobId}</span>
+          <h1 className="text-2xl font-semibold text-slate-900">Execution monitor</h1>
+          <p className="mt-1 text-sm text-slate-600">Live status, ETA, and streaming logs.</p>
         </div>
-        <div>
-          <strong>Status</strong>: {state}
-        </div>
-        <div>
-          <strong>Elapsed</strong>: {elapsed == null ? '—' : formatSeconds(elapsed)}
-        </div>
-        <div>
-          <strong>Estimated completion time</strong>: {eta == null ? '—' : formatSeconds(eta)} remaining
-        </div>
-        <div>
-          <progress max={1} value={progressValue ?? undefined} />
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={() => void onStop()} disabled={stopping || state !== 'running'}>
-            {stopping ? 'Stopping…' : 'Stop job'}
-          </button>
-          <Link to={`/jobs/${jobId}/results`}>View results</Link>
-        </div>
-        <div>
-          <h2>Live logs</h2>
-          <pre style={{ whiteSpace: 'pre-wrap' }}>{log || 'Waiting for logs…'}</pre>
-        </div>
+        <Link to="/">
+          <Button variant="ghost">Dashboard</Button>
+        </Link>
       </div>
+
+      {error && (
+        <Card>
+          <CardHeader title="Error" />
+          <CardBody>
+            <pre className="whitespace-pre-wrap text-sm text-red-700">{error}</pre>
+          </CardBody>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader
+          title={
+            <span>
+              Job <span className="font-mono text-slate-900">{jobId}</span>
+            </span>
+          }
+          right={
+            <div className="flex items-center gap-2">
+              <Link to={`/jobs/${jobId}/results`}>
+                <Button size="sm" variant="outline">
+                  View results
+                </Button>
+              </Link>
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => void onStop()}
+                disabled={stopping || state !== 'running'}
+              >
+                {stopping ? 'Stopping…' : 'Stop job'}
+              </Button>
+            </div>
+          }
+        />
+        <CardBody className="grid gap-3 text-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="text-slate-700">
+              <span className="font-medium text-slate-900">Status</span>:{' '}
+              <Badge
+                tone={
+                  state === 'succeeded' ? 'teal' : state === 'failed' ? 'red' : 'slate'
+                }
+              >
+                {state}
+              </Badge>
+            </div>
+            {cpus != null && cpus > 1 && (
+              <div className="text-slate-700">
+                <span className="font-medium text-slate-900">Parallel run</span>: enabled
+                <span className="ml-1 text-slate-500">(CPUs={cpus})</span>
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="text-slate-700">
+              <span className="font-medium text-slate-900">Elapsed</span>:{' '}
+              {elapsed == null ? '—' : formatSeconds(elapsed)}
+            </div>
+            <div className="text-slate-700">
+              <span className="font-medium text-slate-900">ETA</span>:{' '}
+              {eta == null ? '—' : `${formatSeconds(eta)} remaining`}
+            </div>
+          </div>
+
+          <div>
+            {progressValue == null && state === 'running' ? (
+              <div className="h-2 w-full overflow-hidden rounded bg-slate-200">
+                <div className="h-full w-1/3 animate-pulse bg-slate-500" />
+              </div>
+            ) : (
+              <progress max={1} value={progressValue ?? undefined} className="h-2 w-full" />
+            )}
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader title="Live logs" subtitle="Streaming output as the job runs" />
+        <CardBody>
+          <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800">
+            {log || 'Waiting for logs…'}
+          </pre>
+        </CardBody>
+      </Card>
     </div>
   )
 }

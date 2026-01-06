@@ -16,7 +16,6 @@
 # and conditions as well.
 
 import logtools
-import pandas
 log = logtools.get_logger()
 from config import the_config
 from model_utils import *

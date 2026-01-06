@@ -31,8 +31,10 @@ def get_model_commandline(modelstring):
     Input a model string, and get the piece of the raxml command line that defines that model
     '''
 
-    commandline = the_config.available_models.query("name=='%s'" % modelstring).raxml_commandline.values[0]
-    return commandline
+    row = getattr(the_config, 'available_models_by_name', {}).get(modelstring)
+    if not row:
+        raise KeyError(modelstring)
+    return row.get('raxml_commandline')
 
 
 def get_model_difficulty(modelstring):

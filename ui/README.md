@@ -6,6 +6,14 @@ Upload → Configure → Run → Interpret
 
 ## Run (development)
 
+Single command (recommended):
+
+```bash
+.venv\Scripts\python.exe -m partitionfinder.webapp
+```
+
+Manual (two terminals):
+
 1) Start the FastAPI backend (from the repo root):
 
 ```bash
@@ -21,6 +29,17 @@ npm run dev
 
 The UI uses a Vite dev proxy for REST calls (`/api/*` → `http://localhost:8000/*`).
 For live logs it connects to `ws://localhost:8000/jobs/{id}/stream`.
+
+## Run (production single server)
+
+Builds the UI (if needed) and serves UI + API from a single port:
+
+```bash
+.venv\Scripts\python.exe -m partitionfinder.webapp.prod
+```
+
+Open:
+- http://127.0.0.1:8000
 
 ## Screens
 

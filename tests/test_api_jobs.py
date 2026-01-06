@@ -124,3 +124,40 @@ def test_api_submit_and_wait_matches_baseline(tmp_path: Path, monkeypatch: pytes
 
     assert got["lnl"] == pytest.approx(exp["lnl"], abs=1e-6)
     assert got["criterion_value"] == pytest.approx(exp["criterion_value"], abs=1e-3)
+
+
+def test_effective_argv_injects_default_p1():
+    from partitionfinder.api import service as svc
+
+    req = svc.JobRequest(folder=".", datatype="DNA", args=[], copy_input=True)
+    assert svc._effective_argv(req)[:2] == ["-p", "1"]
+
+
+def test_effective_argv_injects_requested_cpus():
+    from partitionfinder.api import service as svc
+
+    req = svc.JobRequest(folder=".", datatype="DNA", cpus=4, args=[], copy_input=True)
+    assert svc._effective_argv(req)[:2] == ["-p", "4"]
+
+
+def test_effective_argv_respects_explicit_p_and_allows_default_cpus():
+    from partitionfinder.api import service as svc
+
+    req = svc.JobRequest(folder=".", datatype="DNA", cpus=1, args=["-p", "2", "-n"], copy_input=True)
+    assert svc._effective_argv(req)[:4] == ["-p", "2", "-n"]
+
+
+def test_effective_argv_rejects_conflicting_cpus_and_explicit_p():
+    from partitionfinder.api import service as svc
+
+    req = svc.JobRequest(folder=".", datatype="DNA", cpus=3, args=["--processes", "2"], copy_input=True)
+    with pytest.raises(ValueError, match=r"cpus conflicts"):
+        svc._effective_argv(req)
+
+
+def test_effective_argv_requires_copy_input_for_parallelism():
+    from partitionfinder.api import service as svc
+
+    req = svc.JobRequest(folder=".", datatype="DNA", cpus=2, args=[], copy_input=False)
+    with pytest.raises(ValueError, match=r"copy_input=true"):
+        svc._effective_argv(req)

@@ -11,6 +11,7 @@ export interface JobStatusResponse {
   updated_at: string
   datatype?: string
   input_folder?: string
+  cpus?: number | null
   exit_code?: number | null
   error?: string | null
 }
@@ -23,6 +24,7 @@ export interface StopJobResponse {
 export interface JobResultsResponse {
   id: string
   state: JobState
+  cpus?: number | null
   best_scheme_txt?: string | null
   scheme_data_csv?: string | null
   analysis_path?: string | null
@@ -52,4 +54,8 @@ export interface FolderPreviewResponse {
   cfg_file: string
   alignment?: string | null
   data_blocks: DataBlock[]
+}
+
+export interface FolderBrowseResponse {
+  folder?: string | null
 }

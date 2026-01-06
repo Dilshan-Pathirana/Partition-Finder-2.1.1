@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import threading
 import time
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,6 +40,34 @@ from partitionfinder.core import run_folder
 
 
 JobState = Literal["queued", "running", "succeeded", "failed"]
+
+
+def _parse_cpus_from_argv(argv: list[str]) -> int | None:
+    """Best-effort extraction of legacy process count from argv.
+
+    We persist the effective legacy argv in JobMetadata. This helper allows the
+    UI to display whether parallelism was enabled without re-deriving it from
+    request state.
+    """
+    for i, tok in enumerate(argv):
+        if tok in {"-p", "--processes", "--processors"}:
+            if i + 1 >= len(argv):
+                return None
+            try:
+                return int(argv[i + 1])
+            except ValueError:
+                return None
+        if tok.startswith("--processes="):
+            try:
+                return int(tok.split("=", 1)[1])
+            except ValueError:
+                return None
+        if tok.startswith("--processors="):
+            try:
+                return int(tok.split("=", 1)[1])
+            except ValueError:
+                return None
+    return None
 
 
 def _utc_now_iso() -> str:
@@ -76,7 +105,7 @@ class JobRequest(BaseModel):
         le=256,
         description=(
             "Opt-in parallelism (maps to legacy '-p <cpus>'). Defaults to 1 to preserve baseline behavior. "
-            "Ignored if you explicitly pass '-p'/'--processors' in args (conflict will error)."
+            "Ignored if you explicitly pass '-p'/'--processes' in args (conflict will error)."
         ),
     )
     args: list[str] = Field(default_factory=list, description="Legacy CLI args (e.g., ['-p','1','-n','-f'])")
@@ -100,9 +129,11 @@ class JobSubmitResponse(BaseModel):
 def _effective_argv(req: JobRequest) -> list[str]:
     """Compute the legacy argv list for a job request.
 
-    Guardrails:
-    - Default preserves Phase 1 baseline: if args does not specify processes,
-      we inject '-p <cpus>' and cpus defaults to 1.
+        Guardrails:
+        - If args is empty, we inject '-p <cpus>' (cpus defaults to 1) to stabilize
+            baseline behavior across environments.
+        - If args is not empty, we only inject when the user opts into parallelism
+            (cpus != 1), to avoid surprising callers that already specify legacy flags.
     - Backwards compatible: if args explicitly provides '-p/--processes', we do
       not inject a second value.
     - Conflict guardrail: if cpus is explicitly set to a non-default value and
@@ -113,7 +144,7 @@ def _effective_argv(req: JobRequest) -> list[str]:
 
     def parse_explicit_processes(args: list[str]) -> int | None:
         for i, tok in enumerate(args):
-            if tok in {"-p", "--processes"}:
+            if tok in {"-p", "--processes", "--processors"}:
                 if i + 1 >= len(args):
                     raise ValueError("'-p/--processes' requires a value")
                 try:
@@ -125,6 +156,11 @@ def _effective_argv(req: JobRequest) -> list[str]:
                     return int(tok.split("=", 1)[1])
                 except ValueError as e:
                     raise ValueError("'--processes=' value must be an integer") from e
+            if tok.startswith("--processors="):
+                try:
+                    return int(tok.split("=", 1)[1])
+                except ValueError as e:
+                    raise ValueError("'--processors=' value must be an integer") from e
         return None
 
     argv = list(req.args)
@@ -138,7 +174,9 @@ def _effective_argv(req: JobRequest) -> list[str]:
         effective_cpus = explicit
     else:
         effective_cpus = int(req.cpus)
-        argv = ["-p", str(effective_cpus), *argv]
+        should_inject = (len(argv) == 0) or (effective_cpus != 1)
+        if should_inject:
+            argv = ["-p", str(effective_cpus), *argv]
 
     if effective_cpus > 1 and not req.copy_input:
         raise ValueError("cpus > 1 requires copy_input=true for reproducibility")
@@ -153,6 +191,7 @@ class JobStatusResponse(BaseModel):
     updated_at: str
     datatype: str | None = None
     input_folder: str | None = None
+    cpus: Optional[int] = None
     exit_code: Optional[int] = None
     error: Optional[str] = None
 
@@ -165,6 +204,7 @@ class StopJobResponse(BaseModel):
 class JobResultsResponse(BaseModel):
     id: str
     state: JobState
+    cpus: Optional[int] = None
     best_scheme_txt: Optional[str] = None
     scheme_data_csv: Optional[str] = None
     analysis_path: Optional[str] = None
@@ -178,6 +218,10 @@ class DataBlock(BaseModel):
 
 class FolderPreviewRequest(BaseModel):
     folder: str = Field(..., description="Path to folder containing partition_finder.cfg")
+
+
+class FolderBrowseResponse(BaseModel):
+    folder: Optional[str] = None
 
 
 class FolderPreviewResponse(BaseModel):
@@ -214,12 +258,25 @@ class JobStore:
         tmp.write_text(payload, encoding="utf-8")
         os.replace(tmp, p)
 
-    def read_meta(self, job_id: str) -> JobMetadata:
+    def read_meta(self, job_id: str, *, retries: int = 5, retry_delay_s: float = 0.02) -> JobMetadata:
         p = self.meta_path(job_id)
         if not p.exists():
             raise KeyError(job_id)
-        raw = json.loads(p.read_text(encoding="utf-8"))
-        return JobMetadata(**raw)
+
+        last_err: Exception | None = None
+        for _ in range(max(1, int(retries))):
+            try:
+                raw = json.loads(p.read_text(encoding="utf-8"))
+                return JobMetadata(**raw)
+            except (OSError, json.JSONDecodeError, ValueError) as e:
+                # On Windows, concurrent atomic replace (os.replace) can sometimes race
+                # with readers (AV scanners / filesystem semantics). Retry briefly.
+                last_err = e
+                time.sleep(float(retry_delay_s))
+
+        if last_err is not None:
+            raise last_err
+        raise RuntimeError("Failed to read job metadata")
 
     def list_job_ids(self) -> list[str]:
         if not self.root.exists():
@@ -397,28 +454,72 @@ def _parse_data_blocks_from_cfg(text: str) -> list[DataBlock]:
     return blocks
 
 
-def _run_job(job_id: str) -> None:
-    meta = store.read_meta(job_id)
+def _run_job(job_id: str, store_root: str) -> None:
+    # IMPORTANT (Windows): multiprocessing uses spawn, which re-imports this
+    # module in the child process. That means any in-process overrides of the
+    # module-level `store` (e.g., tests/benchmarks) would be lost.
+    #
+    # We therefore pass the store root explicitly so the worker always reads
+    # and writes job artifacts in the intended location.
+    local_store = JobStore(Path(store_root))
+
+    meta = local_store.read_meta(job_id)
 
     # Capture Python logging output (including legacy engine logs) into the
     # per-job log file so WS streaming shows meaningful progress.
-    file_handler = logging.FileHandler(store.log_path(job_id), mode="a", encoding="utf-8")
+    file_handler = logging.FileHandler(local_store.log_path(job_id), mode="a", encoding="utf-8")
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(
         logging.Formatter("%(levelname)-8s | %(asctime)s | %(name)-10s | %(message)s")
     )
 
     root_logger = logging.getLogger("")
+    prev_level = root_logger.level
+    # Ensure INFO-level logs from legacy modules are not filtered out.
+    root_logger.setLevel(logging.INFO)
     root_logger.addHandler(file_handler)
 
-    store.append_log(job_id, f"[{_utc_now_iso()}] Starting job {job_id}")
+    local_store.append_log(job_id, f"[{_utc_now_iso()}] Starting job {job_id}")
+
+    stop_heartbeat = threading.Event()
+
+    def heartbeat() -> None:
+        # Keep status and logs feeling alive even if the legacy engine is quiet.
+        start = time.time()
+        last_emit = 0.0
+        last_size = -1
+        while not stop_heartbeat.wait(1.0):
+            with suppress(Exception):
+                meta0 = local_store.read_meta(job_id)
+                # Touch updated_at so /status reflects activity.
+                touched = JobMetadata(
+                    **{
+                        **asdict(meta0),
+                        "updated_at": _utc_now_iso(),
+                    }
+                )
+                local_store.write_meta(touched)
+
+            # Emit a low-frequency heartbeat line only if the log file is otherwise silent.
+            with suppress(Exception):
+                lp = local_store.log_path(job_id)
+                size = lp.stat().st_size if lp.exists() else -1
+                now = time.time()
+                if size == last_size and (now - last_emit) >= 10.0:
+                    elapsed_s = int(now - start)
+                    local_store.append_log(job_id, f"[{_utc_now_iso()}] Running... elapsed={elapsed_s}s")
+                    last_emit = now
+                last_size = size
+
+    hb_thread = threading.Thread(target=heartbeat, name=f"pf-job-heartbeat-{job_id}", daemon=True)
+    hb_thread.start()
 
     try:
         now = _utc_now_iso()
         meta = JobMetadata(
             **{**asdict(meta), "state": "running", "updated_at": now}
         )
-        store.write_meta(meta)
+        local_store.write_meta(meta)
 
         # Run analysis. Note: legacy engine uses its own logging; we keep a
         # minimal job log around orchestration steps.
@@ -439,12 +540,12 @@ def _run_job(job_id: str) -> None:
                 "exit_code": int(exit_code),
             }
         )
-        store.write_meta(meta)
-        store.append_log(job_id, f"[{_utc_now_iso()}] Finished with exit_code={exit_code}")
+        local_store.write_meta(meta)
+        local_store.append_log(job_id, f"[{_utc_now_iso()}] Finished with exit_code={exit_code}")
 
     except Exception as e:  # noqa: BLE001
         now = _utc_now_iso()
-        store.append_log(job_id, f"[{now}] ERROR: {e!r}")
+        local_store.append_log(job_id, f"[{now}] ERROR: {e!r}")
         meta = JobMetadata(
             **{
                 **asdict(meta),
@@ -454,10 +555,14 @@ def _run_job(job_id: str) -> None:
                 "error": repr(e),
             }
         )
-        store.write_meta(meta)
+        local_store.write_meta(meta)
 
     finally:
+        stop_heartbeat.set()
+        with suppress(Exception):
+            hb_thread.join(timeout=2.0)
         root_logger.removeHandler(file_handler)
+        root_logger.setLevel(prev_level)
         file_handler.close()
 
 
@@ -498,7 +603,7 @@ def submit_job(req: JobRequest) -> str:
     store.append_log(job_id, f"[{now}] Queued job; working_folder={working}")
 
     # Run each job in its own process so we can reliably stop it.
-    proc = multiprocessing.Process(target=_run_job, args=(job_id,), daemon=True)
+    proc = multiprocessing.Process(target=_run_job, args=(job_id, str(store.root)), daemon=True)
     proc.start()
 
     # Persist PID for stop requests.
@@ -584,6 +689,7 @@ def get_jobs(limit: int = 50) -> list[JobStatusResponse]:
                 updated_at=meta.updated_at,
                 datatype=meta.datatype,
                 input_folder=meta.input_folder,
+                cpus=_parse_cpus_from_argv(meta.argv),
                 exit_code=meta.exit_code,
                 error=meta.error,
             )
@@ -604,6 +710,7 @@ def get_job_status(job_id: str) -> JobStatusResponse:
         updated_at=meta.updated_at,
         datatype=meta.datatype,
         input_folder=meta.input_folder,
+        cpus=_parse_cpus_from_argv(meta.argv),
         exit_code=meta.exit_code,
         error=meta.error,
     )
@@ -622,6 +729,7 @@ def get_job_results(job_id: str) -> JobResultsResponse:
     return JobResultsResponse(
         id=meta.id,
         state=meta.state,
+        cpus=_parse_cpus_from_argv(meta.argv),
         best_scheme_txt=best_scheme_txt,
         scheme_data_csv=scheme_data_csv,
         analysis_path=analysis_path if Path(analysis_path).exists() else None,
@@ -647,6 +755,39 @@ def post_folder_preview(req: FolderPreviewRequest) -> FolderPreviewResponse:
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/folders/browse", response_model=FolderBrowseResponse)
+def get_folder_browse() -> FolderBrowseResponse:
+    """Open a native OS folder picker and return the selected path.
+
+    This is intentionally implemented server-side because browsers cannot
+    reliably provide a real local filesystem path for a directory.
+    """
+
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(
+            status_code=501,
+            detail=f"Folder picker not available in this Python environment: {e}",
+        )
+
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        folder = filedialog.askdirectory(title="Select PartitionFinder input folder")
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+        folder = (folder or "").strip()
+        return FolderBrowseResponse(folder=folder or None)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.delete("/jobs/{job_id}")

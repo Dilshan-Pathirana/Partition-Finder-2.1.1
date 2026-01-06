@@ -16,9 +16,9 @@
 # and conditions as well.
 
 import logtools
-import pandas as pd
 import os
 import collections
+import csv
 
 log = logtools.get_logger()
 from util import PartitionFinderError
@@ -35,7 +35,47 @@ _available_lists = ["ALL", # all models, excluding those with base frequencies e
 
 def load_models(the_config):
     HERE = os.path.abspath(os.path.dirname(__file__))
-    the_config.all_models = pd.read_csv(os.path.join(HERE, 'models.csv'))
+
+    # Load models.csv without pandas to reduce import/startup overhead.
+    # We treat the literal string 'NA' (used in models.csv) as a missing value.
+    models_path = os.path.join(HERE, 'models.csv')
+    with open(models_path, newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        rows: list[dict[str, object]] = []
+        for raw in reader:
+            row: dict[str, object] = {}
+            for k, v in raw.items():
+                if v is None:
+                    row[k] = None
+                    continue
+                vv = v.strip()
+                if vv == '' or vv.upper() == 'NA':
+                    row[k] = None
+                    continue
+                # Convert known numeric columns where possible.
+                if k in {
+                    'id',
+                    'matrix_params',
+                    'basefreq_params',
+                    'ratevar_params',
+                    'ALL',
+                    'ALLX',
+                    'BEAST',
+                    'MRBAYES',
+                    'GAMMA',
+                    'GAMMAI',
+                    'LIEMARKOV',
+                    'GAMMALG4X',
+                }:
+                    try:
+                        row[k] = int(vv)
+                        continue
+                    except ValueError:
+                        pass
+                row[k] = vv
+            rows.append(row)
+
+    the_config.all_models = rows
 
     # determine available models based on datatype and phylogeny program
     the_config.available_models = get_available_models(the_config)
@@ -50,17 +90,21 @@ def load_models(the_config):
 
 def get_available_models(the_config):
     # from the list of all models, which ones could we actually run
+    all_models: list[dict[str, object]] = getattr(the_config, 'all_models', [])
+
     if the_config.phylogeny_program == 'phyml':
-        available_models = the_config.all_models[pd.notnull(the_config.all_models.phyml_commandline)]
+        available_models = [m for m in all_models if m.get('phyml_commandline') is not None]
     elif the_config.phylogeny_program == 'raxml':
-        available_models = the_config.all_models[pd.notnull(the_config.all_models.raxml_commandline)]
+        available_models = [m for m in all_models if m.get('raxml_commandline') is not None]
+    else:
+        available_models = []
 
     if the_config.datatype == 'DNA':
-        available_models = available_models.query("datatype=='DNA'")
+        available_models = [m for m in available_models if m.get('datatype') == 'DNA']
     elif the_config.datatype == 'protein':
-        available_models = available_models.query("datatype=='protein'")
+        available_models = [m for m in available_models if m.get('datatype') == 'protein']
     elif the_config.datatype == 'morphology':
-        available_models = available_models.query("datatype=='morphology'")
+        available_models = [m for m in available_models if m.get('datatype') == 'morphology']
     else:
         log.error("Unknown datatype '%s'" % the_config.datatype)
 
@@ -71,6 +115,8 @@ def get_available_models(the_config):
                   (the_config.phylogeny_program, the_config.datatype))
         raise PartitionFinderError
 
+    # Build a quick lookup by name for downstream modules.
+    the_config.available_models_by_name = {m.get('name'): m for m in available_models}
     return available_models
 
 def parse_user_models(the_config):
@@ -91,7 +137,7 @@ def parse_user_models(the_config):
 def check_all_models(the_config):
     # everything has to be a model in the_config.available_models
     models = the_config.models
-    allowed = set(the_config.available_models.name)
+    allowed = set(m.get('name') for m in the_config.available_models)
 
 
     problems = set(models).difference(allowed)
@@ -121,9 +167,9 @@ def check_all_models_and_lists(the_config):
     # everything has to be either a model in the_config.available_models
     # OR a valid option from the _available_models
     models = the_config.models
-    allowed = set(_available_lists).union(set(the_config.available_models.name))
+    allowed = set(_available_lists).union(set(m.get('name') for m in the_config.available_models))
 
-    allmods = set(_available_lists).union(set(the_config.all_models.name))
+    allmods = set(_available_lists).union(set(m.get('name') for m in the_config.all_models))
 
     # first we check for stuff that's not anywhere on our lists
     mistakes = set(models).difference(allmods)
@@ -173,7 +219,14 @@ def expand_model_list(the_config):
     # by this point, we know that mod_list is a list of length 1
     mod_list = the_config.models[0]
 
-    the_config.models = list(the_config.available_models.query("%s==1" % mod_list).name)
+    expanded: list[str] = []
+    for m in the_config.available_models:
+        try:
+            if int(m.get(mod_list) or 0) == 1:
+                expanded.append(str(m.get('name')))
+        except Exception:
+            continue
+    the_config.models = expanded
 
     if len(the_config.models)<1:
         log.error("""The model list '%s' is not a compatible with 

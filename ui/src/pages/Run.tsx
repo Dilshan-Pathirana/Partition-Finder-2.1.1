@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { submitJob } from '../api/client'
 import type { JobRequest } from '../api/types'
+import WorkflowStepper from '../components/layout/WorkflowStepper'
+import Button from '../components/ui/Button'
+import { Card, CardBody, CardHeader } from '../components/ui/Card'
 
 export default function RunPage() {
   const navigate = useNavigate()
@@ -9,7 +12,11 @@ export default function RunPage() {
 
   const req = useMemo((): JobRequest | null => {
     const folder = sessionStorage.getItem('pf.new.folder') ?? ''
-    const datatype = (sessionStorage.getItem('pf.new.datatype') as any) ?? 'DNA'
+    const datatypeRaw = sessionStorage.getItem('pf.new.datatype')
+    const datatype: JobRequest['datatype'] =
+      datatypeRaw === 'DNA' || datatypeRaw === 'protein' || datatypeRaw === 'morphology'
+        ? datatypeRaw
+        : 'DNA'
     const overridesRaw = sessionStorage.getItem('pf.new.overrides')
     const overrides = overridesRaw ? (JSON.parse(overridesRaw) as Record<string, string>) : {}
     const cpusRaw = sessionStorage.getItem('pf.new.cpus')
@@ -52,30 +59,43 @@ export default function RunPage() {
     return () => {
       cancelled = true
     }
-  }, [req])
+  }, [req, navigate])
 
   return (
-    <div>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h1>New analysis</h1>
-        <Link to="/new/config">Back</Link>
-      </header>
+    <div className="grid gap-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">New analysis</h1>
+          <p className="mt-1 text-sm text-slate-600">Submitting your job to the backend.</p>
+        </div>
+        <Link to="/new/config">
+          <Button variant="ghost">Back</Button>
+        </Link>
+      </div>
 
-      <h2>Run</h2>
-      <p>Step 3 of 4 — Upload → Configure → Run → Interpret</p>
+      <WorkflowStepper active="run" />
 
-      {error && <p style={{ whiteSpace: 'pre-wrap' }}>{error}</p>}
+      {error && (
+        <Card>
+          <CardHeader title="Error" />
+          <CardBody>
+            <pre className="whitespace-pre-wrap text-sm text-red-700">{error}</pre>
+          </CardBody>
+        </Card>
+      )}
 
       {!error && (
-        <div style={{ display: 'grid', gap: 8 }}>
-          <div>
-            <strong>Status</strong>: Submitting job…
-          </div>
-          <div>
-            <progress />
-          </div>
-          <p>You will be redirected to the live monitor.</p>
-        </div>
+        <Card>
+          <CardHeader title="Submitting" subtitle="You will be redirected to the live monitor" />
+          <CardBody className="grid gap-3 text-sm text-slate-700">
+            <div>
+              <span className="font-medium text-slate-900">Status</span>: Submitting job…
+            </div>
+            <div>
+              <progress className="h-2 w-full" />
+            </div>
+          </CardBody>
+        </Card>
       )}
     </div>
   )

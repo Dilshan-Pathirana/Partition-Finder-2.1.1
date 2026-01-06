@@ -61,6 +61,33 @@ Results are saved to `examples/results/<filename>_results/analysis/`
 python PartitionFinder.py <folder_with_cfg_and_alignment>
 ```
 
+#### Option 4: Modern Web UI (React + FastAPI)
+
+Starts the API server **and** the React UI together with a single command:
+
+```bash
+.venv\Scripts\python.exe -m partitionfinder.webapp
+```
+
+Then open:
+- http://127.0.0.1:5173 (UI)
+
+Prereqs:
+- Python deps installed (`pip install -r requirements.txt`)
+- Node.js installed (for `npm`)
+
+Production single-server mode (one port, no Vite):
+
+```bash
+.venv\Scripts\python.exe -m partitionfinder.webapp.prod
+```
+
+Windows shortcut:
+- Double-click `Run_PartitionFinder_WebUI.bat`
+
+Then open:
+- http://127.0.0.1:8000
+
 ---
 
 ## 📁 Input Files
