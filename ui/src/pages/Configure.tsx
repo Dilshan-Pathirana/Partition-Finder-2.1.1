@@ -7,6 +7,7 @@ export interface ConfigState {
   criterion: 'aic' | 'aicc' | 'bic'
   search: string
   branchlengths: 'linked' | 'unlinked'
+  cpus: number
 }
 
 export const defaultConfigState: ConfigState = {
@@ -15,6 +16,7 @@ export const defaultConfigState: ConfigState = {
   criterion: 'aicc',
   search: 'greedy',
   branchlengths: 'linked',
+  cpus: 1,
 }
 
 export default function ConfigurePage(props: {
@@ -44,10 +46,15 @@ export default function ConfigurePage(props: {
       setError('Please choose a scheme search strategy.')
       return
     }
+    if (!Number.isFinite(props.state.cpus) || props.state.cpus < 1) {
+      setError('CPUs must be an integer ≥ 1.')
+      return
+    }
     // Persist overrides to sessionStorage for the Run step.
     sessionStorage.setItem('pf.new.folder', props.folder)
     sessionStorage.setItem('pf.new.overrides', JSON.stringify(overrides))
     sessionStorage.setItem('pf.new.datatype', props.state.datatype)
+    sessionStorage.setItem('pf.new.cpus', String(Math.floor(props.state.cpus)))
     navigate('/new/run')
   }
 
@@ -127,6 +134,17 @@ export default function ConfigurePage(props: {
             <option value="linked">linked</option>
             <option value="unlinked">unlinked</option>
           </select>
+        </label>
+
+        <label>
+          CPUs (opt-in speedup)
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={props.state.cpus}
+            onChange={(e) => props.onChange({ ...props.state, cpus: Number(e.target.value) })}
+          />
         </label>
       </div>
 

@@ -8,6 +8,8 @@ _log_depth = 0
 _max_width = 80
 _tab_width = 2
 
+_LOGGER_CACHE = {}
+
 # These should be the same size as the _tab_width
 _bullet       = ""
 _continuation = "..."
@@ -17,21 +19,39 @@ def get_logger(fname=None):
 
     # Magically get the filename from the calling function
     if fname is None:
-        caller_frame = inspect.stack()[1][0]
-        fname = caller_frame.f_globals['__file__']
+        frame = inspect.currentframe()
+        try:
+            caller_frame = frame.f_back if frame is not None else None
+            fname = caller_frame.f_globals.get('__file__') if caller_frame is not None else None
+        finally:
+            # Avoid reference cycles.
+            del frame
+            try:
+                del caller_frame
+            except NameError:
+                pass
 
-    # Strip the beginning and the extension
-    head_tail = os.path.split(fname)
-    base_ext = os.path.splitext(head_tail[1])
+    if not fname:
+        log_name = "unknown"
+    else:
+        # Strip the beginning and the extension
+        head_tail = os.path.split(fname)
+        base_ext = os.path.splitext(head_tail[1])
 
-    log_name = base_ext[0]
+        log_name = base_ext[0]
 
-    # Trim it max 10 characters
-    log_name = log_name[:10]
+        # Trim it max 10 characters
+        log_name = log_name[:10]
+
+    cached = _LOGGER_CACHE.get(log_name)
+    if cached is not None:
+        return cached
 
     # Now wrap it and return it
     # return DumbLogger(logging.getLogger(log_name))
-    return SmartLogger(logging.getLogger(log_name))
+    logger = SmartLogger(logging.getLogger(log_name))
+    _LOGGER_CACHE[log_name] = logger
+    return logger
 
 class DumbLogger(object):
     def __init__(self, logger):
@@ -79,7 +99,7 @@ class SmartLogger(object):
     def format_message(self, msg):
         """Strip multiline comments down to a single line"""
         # First, get rid of tabs and newlines
-        warning = re.sub('\s', ' ', msg)
+        warning = re.sub(r'\s', ' ', msg)
 
         # Now get rid of all extra spaces
         # http://stackoverflow.com/questions/1546226/

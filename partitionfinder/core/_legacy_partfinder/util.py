@@ -23,6 +23,7 @@ import fnmatch
 import subprocess
 import shlex
 import shutil
+import tempfile
 from math import log as logarithm
 
 
@@ -78,18 +79,23 @@ def run_program(binary, command):
 
     # Note: We use shlex.split as it does a proper job of handling command
     # lines that are complex
-    p = subprocess.Popen(
-        shlex.split(command),
-        shell=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE)
+    args = shlex.split(command)
 
-    # Capture the output, we might put it into the errors
-    stdout, stderr = p.communicate()
-    # p.terminate()
+    # Avoid piping stdout/stderr for successful runs (saves thread + IPC
+    # overhead). We still capture output for failures.
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        p = subprocess.Popen(
+            args,
+            shell=False,
+            stdout=stdout_file,
+            stderr=stderr_file,
+        )
+        p.wait()
 
-    if p.returncode != 0:
-        raise ExternalProgramError(stdout, stderr)
+        if p.returncode != 0:
+            stdout_file.seek(0)
+            stderr_file.seek(0)
+            raise ExternalProgramError(stdout_file.read(), stderr_file.read())
 
 def dupfile(src, dst):
     # Make a copy or a symlink so that we don't overwrite different model runs

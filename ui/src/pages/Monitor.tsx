@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { getJobStatus, jobLogWebSocketUrl, listJobs } from '../api/client'
+import { getJobStatus, jobLogWebSocketUrl, listJobs, stopJob } from '../api/client'
 import type { JobState } from '../api/types'
 
 function formatSeconds(s: number): string {
@@ -20,6 +20,7 @@ export default function MonitorPage() {
   const [log, setLog] = useState('')
   const [createdAt, setCreatedAt] = useState<number | null>(null)
   const [avgSeconds, setAvgSeconds] = useState<number | null>(null)
+  const [stopping, setStopping] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -44,6 +45,20 @@ export default function MonitorPage() {
       window.clearInterval(t)
     }
   }, [jobId])
+
+  async function onStop() {
+    if (!jobId) return
+    if (!confirm(`Stop job ${jobId}?`)) return
+    setStopping(true)
+    setError(null)
+    try {
+      await stopJob(jobId)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setStopping(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -82,6 +97,12 @@ export default function MonitorPage() {
     if (elapsed == null || avgSeconds == null) return null
     return Math.max(0, avgSeconds - elapsed)
   }, [elapsed, avgSeconds])
+
+  const progressValue = useMemo(() => {
+    if (state === 'succeeded' || state === 'failed') return 1
+    if (elapsed == null || avgSeconds == null || avgSeconds <= 0) return null
+    return Math.max(0, Math.min(0.98, elapsed / avgSeconds))
+  }, [elapsed, avgSeconds, state])
 
   useEffect(() => {
     if (!jobId) return
@@ -122,14 +143,17 @@ export default function MonitorPage() {
           <strong>Estimated completion time</strong>: {eta == null ? '—' : formatSeconds(eta)} remaining
         </div>
         <div>
-          <progress />
+          <progress max={1} value={progressValue ?? undefined} />
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => void onStop()} disabled={stopping || state !== 'running'}>
+            {stopping ? 'Stopping…' : 'Stop job'}
+          </button>
+          <Link to={`/jobs/${jobId}/results`}>View results</Link>
         </div>
         <div>
           <h2>Live logs</h2>
           <pre style={{ whiteSpace: 'pre-wrap' }}>{log || 'Waiting for logs…'}</pre>
-        </div>
-        <div>
-          <Link to={`/jobs/${jobId}/results`}>View results</Link>
         </div>
       </div>
     </div>

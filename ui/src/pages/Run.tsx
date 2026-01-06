@@ -1,34 +1,26 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { getJobStatus, submitJob } from '../api/client'
-import type { JobRequest, JobState } from '../api/types'
-
-function formatSeconds(s: number): string {
-  if (!Number.isFinite(s) || s < 0) return '—'
-  if (s < 60) return `${Math.round(s)}s`
-  const m = Math.floor(s / 60)
-  const r = Math.round(s % 60)
-  return `${m}m ${r}s`
-}
+import { submitJob } from '../api/client'
+import type { JobRequest } from '../api/types'
 
 export default function RunPage() {
   const navigate = useNavigate()
-  const [jobId, setJobId] = useState<string | null>(null)
-  const [state, setState] = useState<JobState | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [startedAt, setStartedAt] = useState<number | null>(null)
 
   const req = useMemo((): JobRequest | null => {
     const folder = sessionStorage.getItem('pf.new.folder') ?? ''
     const datatype = (sessionStorage.getItem('pf.new.datatype') as any) ?? 'DNA'
     const overridesRaw = sessionStorage.getItem('pf.new.overrides')
     const overrides = overridesRaw ? (JSON.parse(overridesRaw) as Record<string, string>) : {}
+    const cpusRaw = sessionStorage.getItem('pf.new.cpus')
+    const cpus = cpusRaw ? Number(cpusRaw) : 1
 
     if (!folder.trim()) return null
 
     return {
       folder,
       datatype,
+      cpus: Number.isFinite(cpus) && cpus >= 1 ? Math.floor(cpus) : 1,
       args: [],
       copy_input: true,
       overrides,
@@ -45,22 +37,11 @@ export default function RunPage() {
       }
 
       setError(null)
-      setStartedAt(Date.now())
 
       try {
         const { id } = await submitJob(req)
         if (cancelled) return
-        setJobId(id)
-        setState('queued')
-
-        // Poll until running/succeeded/failed.
-        while (!cancelled) {
-          const s = await getJobStatus(id)
-          if (cancelled) return
-          setState(s.state)
-          if (s.state === 'succeeded' || s.state === 'failed') break
-          await new Promise((r) => setTimeout(r, 600))
-        }
+        navigate(`/jobs/${id}/monitor`, { replace: true })
       } catch (e) {
         if (cancelled) return
         setError(e instanceof Error ? e.message : String(e))
@@ -72,16 +53,6 @@ export default function RunPage() {
       cancelled = true
     }
   }, [req])
-
-  const elapsed = startedAt ? (Date.now() - startedAt) / 1000 : null
-
-  function goMonitor() {
-    if (jobId) navigate(`/jobs/${jobId}/monitor`)
-  }
-
-  function goResults() {
-    if (jobId) navigate(`/jobs/${jobId}/results`)
-  }
 
   return (
     <div>
@@ -98,26 +69,12 @@ export default function RunPage() {
       {!error && (
         <div style={{ display: 'grid', gap: 8 }}>
           <div>
-            <strong>Job</strong>: {jobId ? jobId : 'Submitting…'}
-          </div>
-          <div>
-            <strong>Status</strong>: {state ?? '…'}
-          </div>
-          <div>
-            <strong>Elapsed</strong>: {elapsed == null ? '—' : formatSeconds(elapsed)}
+            <strong>Status</strong>: Submitting job…
           </div>
           <div>
             <progress />
           </div>
-
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={goMonitor} disabled={!jobId}>
-              Open live monitor
-            </button>
-            <button onClick={goResults} disabled={!jobId || (state !== 'succeeded' && state !== 'failed')}>
-              View results
-            </button>
-          </div>
+          <p>You will be redirected to the live monitor.</p>
         </div>
       )}
     </div>

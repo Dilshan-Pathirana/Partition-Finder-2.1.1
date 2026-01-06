@@ -15,6 +15,11 @@ export interface JobStatusResponse {
   error?: string | null
 }
 
+export interface StopJobResponse {
+  status: string
+  job_id: string
+}
+
 export interface JobResultsResponse {
   id: string
   state: JobState
@@ -26,7 +31,25 @@ export interface JobResultsResponse {
 export interface JobRequest {
   folder: string
   datatype: 'DNA' | 'protein' | 'morphology'
+  cpus?: number
   args: string[]
   copy_input: boolean
   overrides: Record<string, string>
+}
+
+export interface DataBlock {
+  name: string
+  range: string
+  length?: number | null
+}
+
+export interface FolderPreviewRequest {
+  folder: string
+}
+
+export interface FolderPreviewResponse {
+  folder: string
+  cfg_file: string
+  alignment?: string | null
+  data_blocks: DataBlock[]
 }

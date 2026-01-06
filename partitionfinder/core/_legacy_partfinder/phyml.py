@@ -220,7 +220,19 @@ class Parser(object):
 
 
 def parse(text, cfg):
-    the_parser = Parser(cfg)
+    # Building the pyparsing grammar is moderately expensive; cache per-config
+    # for the lifetime of the process.
+    global _PARSER_CACHE
+    try:
+        cache = _PARSER_CACHE
+    except NameError:
+        cache = _PARSER_CACHE = {}
+
+    key = id(cfg)
+    the_parser = cache.get(key)
+    if the_parser is None:
+        the_parser = Parser(cfg)
+        cache[key] = the_parser
     return the_parser.parse(text)
 
 

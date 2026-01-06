@@ -4,6 +4,22 @@ export interface Charset {
   length?: number
 }
 
+export interface BestSchemeHeader {
+  schemeName?: string
+  lnl?: number
+  aic?: number
+  aicc?: number
+  bic?: number
+  parameters?: number
+  sites?: number
+  subsets?: number
+}
+
+export interface SubsetModel {
+  subset: string
+  model: string
+}
+
 function parseRangeLength(range: string): number | undefined {
   // Handles simple ranges like "1-407" and comma-separated ranges.
   // This is intentionally minimal; it supports the most common PartitionFinder outputs.
@@ -47,6 +63,53 @@ export function extractNexusSetsBlock(bestSchemeTxt: string): string | null {
   const end = bestSchemeTxt.indexOf('end;', start)
   if (end === -1) return null
   return bestSchemeTxt.slice(start, end + 'end;'.length)
+}
+
+export function parseBestSchemeHeader(bestSchemeTxt: string): BestSchemeHeader {
+  const header: BestSchemeHeader = {}
+
+  function findNumber(label: string): number | undefined {
+    const re = new RegExp(`^\\s*${label}\\s*:?\\s*(.+?)\\s*$`, 'im')
+    const m = re.exec(bestSchemeTxt)
+    if (!m) return undefined
+    const n = Number(m[1])
+    return Number.isFinite(n) ? n : undefined
+  }
+
+  const nameMatch = /^\s*Scheme Name\s*:?\s*(.+?)\s*$/im.exec(bestSchemeTxt)
+  if (nameMatch) header.schemeName = nameMatch[1]
+
+  header.lnl = findNumber('Scheme lnL')
+  header.aic = findNumber('Scheme AIC')
+  header.aicc = findNumber('Scheme AICc')
+  header.bic = findNumber('Scheme BIC')
+  header.parameters = findNumber('Number of params')
+  header.sites = findNumber('Number of sites')
+  header.subsets = findNumber('Number of subsets')
+
+  return header
+}
+
+export function parseSubsetModelsFromIQtree(bestSchemeTxt: string): SubsetModel[] {
+  // We use the IQtree section because it encodes the model for each subset:
+  // charpartition PartitionFinder = GTR+G:Subset1, HKY+I:Subset2;
+  const m = /^\s*charpartition\s+PartitionFinder\s*=\s*(.+?)\s*;\s*$/im.exec(bestSchemeTxt)
+  if (!m) return []
+  const rhs = m[1]
+  const entries = rhs
+    .split(',')
+    .map((e) => e.trim())
+    .filter(Boolean)
+
+  const out: SubsetModel[] = []
+  for (const e of entries) {
+    const parts = e.split(':').map((p) => p.trim())
+    if (parts.length !== 2) continue
+    const [model, subset] = parts
+    if (!model || !subset) continue
+    out.push({ model, subset })
+  }
+  return out
 }
 
 export function parseCharsetsFromNexusBlock(block: string): Charset[] {

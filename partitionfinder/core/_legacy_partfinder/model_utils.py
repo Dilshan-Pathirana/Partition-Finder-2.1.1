@@ -16,12 +16,48 @@
 # and conditions as well.
 
 import logtools
-import pandas as pd
 import os
 from config import the_config
 
 log = logtools.get_logger()
 from util import PartitionFinderError
+
+
+_MODEL_PARAM_TOTAL_CACHE = None
+_MODEL_PARAM_TOTAL_CACHE_SOURCE_ID = None
+
+
+def _get_model_param_total_cache():
+    global _MODEL_PARAM_TOTAL_CACHE
+    global _MODEL_PARAM_TOTAL_CACHE_SOURCE_ID
+
+    df = getattr(the_config, "available_models", None)
+    if df is None:
+        _MODEL_PARAM_TOTAL_CACHE = {}
+        _MODEL_PARAM_TOTAL_CACHE_SOURCE_ID = None
+        return _MODEL_PARAM_TOTAL_CACHE
+
+    source_id = id(df)
+    if _MODEL_PARAM_TOTAL_CACHE is not None and _MODEL_PARAM_TOTAL_CACHE_SOURCE_ID == source_id:
+        return _MODEL_PARAM_TOTAL_CACHE
+
+    # Build a fast lookup: model name -> total param count.
+    cache = {}
+    try:
+        subset = df[["name", "matrix_params", "basefreq_params", "ratevar_params"]]
+        for name, m, b, r in subset.itertuples(index=False, name=None):
+            try:
+                cache[name] = int(m) + int(b) + int(r)
+            except Exception:
+                # If types are unexpected, fall back to Python's + behavior.
+                cache[name] = m + b + r
+    except Exception:
+        # Defensive fallback: in case available_models is not a DataFrame-like.
+        cache = {}
+
+    _MODEL_PARAM_TOTAL_CACHE = cache
+    _MODEL_PARAM_TOTAL_CACHE_SOURCE_ID = source_id
+    return _MODEL_PARAM_TOTAL_CACHE
 
 def get_num_params(modelstring):
     """
@@ -29,11 +65,15 @@ def get_num_params(modelstring):
     parameters
     """
 
-    m = the_config.available_models.query("name=='%s'" %modelstring).matrix_params.values[0]
-    b = the_config.available_models.query("name=='%s'" %modelstring).basefreq_params.values[0]
-    r = the_config.available_models.query("name=='%s'" %modelstring).ratevar_params.values[0]
+    # Handle bytes in Python 3
+    if isinstance(modelstring, bytes):
+        modelstring = modelstring.decode('utf-8')
 
-    total = m+b+r
+    cache = _get_model_param_total_cache()
+    try:
+        total = cache[modelstring]
+    except KeyError:
+        raise PartitionFinderError(f"Unknown model: {modelstring}")
 
     log.debug("Model: %s Params: %d" % (modelstring, total))
 

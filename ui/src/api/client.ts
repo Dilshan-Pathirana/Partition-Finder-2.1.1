@@ -1,8 +1,11 @@
 import type {
+  FolderPreviewRequest,
+  FolderPreviewResponse,
   JobRequest,
   JobResultsResponse,
   JobStatusResponse,
   JobSubmitResponse,
+  StopJobResponse,
 } from './types'
 
 const API_PREFIX = '/api'
@@ -54,8 +57,22 @@ export async function deleteJob(jobId: string): Promise<void> {
   await http(`/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' })
 }
 
+export async function stopJob(jobId: string): Promise<StopJobResponse> {
+  return http<StopJobResponse>(`/jobs/${encodeURIComponent(jobId)}/stop`, { method: 'POST' })
+}
+
 export function jobLogWebSocketUrl(jobId: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
   // Vite dev server proxies only HTTP. For WebSocket, we connect directly to the API.
-  return `${proto}://localhost:8000/jobs/${encodeURIComponent(jobId)}/stream`
+  // Use the current hostname to avoid localhost/IPv6 resolution issues on Windows.
+  let host = window.location.hostname || '127.0.0.1'
+  if (host === 'localhost') host = '127.0.0.1'
+  return `${proto}://${host}:8000/jobs/${encodeURIComponent(jobId)}/stream`
+}
+
+export async function previewFolder(req: FolderPreviewRequest): Promise<FolderPreviewResponse> {
+  return http<FolderPreviewResponse>('/folders/preview', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
 }

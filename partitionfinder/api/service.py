@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import threading
 import time
 from dataclasses import asdict, dataclass
@@ -26,6 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
 from uuid import uuid4
+
+import multiprocessing
 
 from fastapi import FastAPI, HTTPException, WebSocket
 from pydantic import BaseModel, Field
@@ -58,6 +61,7 @@ class JobMetadata:
     input_folder: str
     working_folder: str
     argv: list[str]
+    pid: Optional[int] = None
     exit_code: Optional[int] = None
     error: Optional[str] = None
     progress_pct: Optional[float] = None  # For future enhancement
@@ -66,6 +70,15 @@ class JobMetadata:
 class JobRequest(BaseModel):
     folder: str = Field(..., description="Path to folder containing partition_finder.cfg")
     datatype: Literal["DNA", "protein", "morphology"] = "DNA"
+    cpus: int = Field(
+        default=1,
+        ge=1,
+        le=256,
+        description=(
+            "Opt-in parallelism (maps to legacy '-p <cpus>'). Defaults to 1 to preserve baseline behavior. "
+            "Ignored if you explicitly pass '-p'/'--processors' in args (conflict will error)."
+        ),
+    )
     args: list[str] = Field(default_factory=list, description="Legacy CLI args (e.g., ['-p','1','-n','-f'])")
     copy_input: bool = Field(
         default=True,
@@ -84,6 +97,55 @@ class JobSubmitResponse(BaseModel):
     id: str
 
 
+def _effective_argv(req: JobRequest) -> list[str]:
+    """Compute the legacy argv list for a job request.
+
+    Guardrails:
+    - Default preserves Phase 1 baseline: if args does not specify processes,
+      we inject '-p <cpus>' and cpus defaults to 1.
+    - Backwards compatible: if args explicitly provides '-p/--processes', we do
+      not inject a second value.
+    - Conflict guardrail: if cpus is explicitly set to a non-default value and
+      args also provides '-p/--processes', we error.
+    - Repro guardrail: if effective cpus > 1, require copy_input=True to avoid
+      concurrent writes into a shared input folder.
+    """
+
+    def parse_explicit_processes(args: list[str]) -> int | None:
+        for i, tok in enumerate(args):
+            if tok in {"-p", "--processes"}:
+                if i + 1 >= len(args):
+                    raise ValueError("'-p/--processes' requires a value")
+                try:
+                    return int(args[i + 1])
+                except ValueError as e:
+                    raise ValueError("'-p/--processes' value must be an integer") from e
+            if tok.startswith("--processes="):
+                try:
+                    return int(tok.split("=", 1)[1])
+                except ValueError as e:
+                    raise ValueError("'--processes=' value must be an integer") from e
+        return None
+
+    argv = list(req.args)
+    explicit = parse_explicit_processes(argv)
+
+    if explicit is not None:
+        if req.cpus != 1 and explicit != int(req.cpus):
+            raise ValueError(
+                "cpus conflicts with explicit '-p/--processes' in args; please use one or ensure they match"
+            )
+        effective_cpus = explicit
+    else:
+        effective_cpus = int(req.cpus)
+        argv = ["-p", str(effective_cpus), *argv]
+
+    if effective_cpus > 1 and not req.copy_input:
+        raise ValueError("cpus > 1 requires copy_input=true for reproducibility")
+
+    return argv
+
+
 class JobStatusResponse(BaseModel):
     id: str
     state: JobState
@@ -95,12 +157,34 @@ class JobStatusResponse(BaseModel):
     error: Optional[str] = None
 
 
+class StopJobResponse(BaseModel):
+    status: str
+    job_id: str
+
+
 class JobResultsResponse(BaseModel):
     id: str
     state: JobState
     best_scheme_txt: Optional[str] = None
     scheme_data_csv: Optional[str] = None
     analysis_path: Optional[str] = None
+
+
+class DataBlock(BaseModel):
+    name: str
+    range: str
+    length: Optional[int] = None
+
+
+class FolderPreviewRequest(BaseModel):
+    folder: str = Field(..., description="Path to folder containing partition_finder.cfg")
+
+
+class FolderPreviewResponse(BaseModel):
+    folder: str
+    cfg_file: str
+    alignment: Optional[str] = None
+    data_blocks: list[DataBlock] = Field(default_factory=list)
 
 
 class JobStore:
@@ -123,9 +207,12 @@ class JobStore:
 
     def write_meta(self, meta: JobMetadata) -> None:
         p = self.meta_path(meta.id)
-        with self._lock:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps(asdict(meta), indent=2), encoding="utf-8")
+        # Atomic write so readers never observe a partially-written JSON file.
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(p.suffix + ".tmp")
+        payload = json.dumps(asdict(meta), indent=2)
+        tmp.write_text(payload, encoding="utf-8")
+        os.replace(tmp, p)
 
     def read_meta(self, job_id: str) -> JobMetadata:
         p = self.meta_path(job_id)
@@ -239,6 +326,77 @@ def _apply_cfg_overrides(cfg_path: Path, overrides: dict[str, str]) -> None:
         cfg_path.write_text(text, encoding="utf-8")
 
 
+def _parse_alignment_from_cfg(text: str) -> Optional[str]:
+    m = re.search(r"^\s*alignment\s*=\s*(.+?)\s*;\s*$", text, flags=re.IGNORECASE | re.MULTILINE)
+    if not m:
+        return None
+    return m.group(1).strip().strip('"').strip("'")
+
+
+def _range_length(range_expr: str) -> Optional[int]:
+    """Best-effort range length for PF range expressions.
+
+    Supports:
+    - 1-490
+    - 1622-2243\\3 (codon step)
+    - Comma-separated segments
+    """
+    parts = [p.strip() for p in range_expr.replace(";", "").split(",") if p.strip()]
+    total = 0
+    any_ok = False
+
+    for part in parts:
+        # Step syntax: start-end\step
+        m = re.match(r"^\s*(\d+)\s*-\s*(\d+)(?:\\\s*(\d+))?\s*$", part)
+        if m:
+            a = int(m.group(1))
+            b = int(m.group(2))
+            step = int(m.group(3)) if m.group(3) else 1
+            if b >= a and step >= 1:
+                total += ((b - a) // step) + 1
+                any_ok = True
+            continue
+
+        # Explicit site lists are uncommon in cfg, but handle as fallback.
+        nums = [int(x) for x in re.findall(r"\d+", part)]
+        if nums:
+            total += len(nums)
+            any_ok = True
+
+    return total if any_ok else None
+
+
+def _parse_data_blocks_from_cfg(text: str) -> list[DataBlock]:
+    lines = text.splitlines()
+    in_blocks = False
+    blocks: list[DataBlock] = []
+
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        if re.match(r"^\[\s*data_blocks\s*\]$", line, flags=re.IGNORECASE):
+            in_blocks = True
+            continue
+
+        if in_blocks and re.match(r"^\[.+\]$", line):
+            # Next section.
+            break
+
+        if not in_blocks:
+            continue
+
+        m = re.match(r"^\s*([^=]+?)\s*=\s*(.+?)\s*;\s*$", raw)
+        if not m:
+            continue
+        name = m.group(1).strip()
+        rng = m.group(2).strip()
+        blocks.append(DataBlock(name=name, range=rng, length=_range_length(rng)))
+
+    return blocks
+
+
 def _run_job(job_id: str) -> None:
     meta = store.read_meta(job_id)
 
@@ -323,6 +481,9 @@ def submit_job(req: JobRequest) -> str:
         _apply_cfg_overrides(cfg_path, req.overrides)
 
     now = _utc_now_iso()
+
+    argv = _effective_argv(req)
+
     meta = JobMetadata(
         id=job_id,
         created_at=now,
@@ -331,14 +492,37 @@ def submit_job(req: JobRequest) -> str:
         datatype=req.datatype,
         input_folder=str(src),
         working_folder=str(working),
-        argv=list(req.args),
+        argv=argv,
     )
     store.write_meta(meta)
     store.append_log(job_id, f"[{now}] Queued job; working_folder={working}")
 
-    t = threading.Thread(target=_run_job, args=(job_id,), daemon=True)
-    t.start()
+    # Run each job in its own process so we can reliably stop it.
+    proc = multiprocessing.Process(target=_run_job, args=(job_id,), daemon=True)
+    proc.start()
+
+    # Persist PID for stop requests.
+    meta = JobMetadata(**{**asdict(meta), "pid": int(proc.pid) if proc.pid else None, "updated_at": _utc_now_iso()})
+    store.write_meta(meta)
     return job_id
+
+
+def _stop_process(pid: int) -> None:
+    if os.name == "nt":
+        # /T = kill child processes, /F = force.
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        return
+
+    # POSIX: best-effort terminate.
+    try:
+        os.kill(pid, 15)
+    except Exception:
+        pass
 
 
 def get_best_scheme_txt(meta: JobMetadata) -> Optional[str]:
@@ -444,6 +628,27 @@ def get_job_results(job_id: str) -> JobResultsResponse:
     )
 
 
+@app.post("/folders/preview", response_model=FolderPreviewResponse)
+def post_folder_preview(req: FolderPreviewRequest) -> FolderPreviewResponse:
+    """Validate a folder and extract a lightweight preview from the .cfg.
+
+    This is UI support only; it does not run an analysis.
+    """
+    try:
+        folder = Path(req.folder).resolve()
+        _validate_input_folder(folder)
+        cfg_path = _find_cfg_file(folder)
+        text = cfg_path.read_text(encoding="utf-8", errors="replace")
+        return FolderPreviewResponse(
+            folder=str(folder),
+            cfg_file=str(cfg_path),
+            alignment=_parse_alignment_from_cfg(text),
+            data_blocks=_parse_data_blocks_from_cfg(text),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.delete("/jobs/{job_id}")
 def delete_job(job_id: str) -> dict[str, str]:
     """Delete a job and all its artifacts."""
@@ -465,6 +670,46 @@ def delete_job(job_id: str) -> dict[str, str]:
         raise HTTPException(status_code=500, detail="Failed to delete job")
     
     return {"status": "deleted", "job_id": job_id}
+
+
+@app.post("/jobs/{job_id}/stop", response_model=StopJobResponse)
+def post_stop_job(job_id: str) -> StopJobResponse:
+    """Stop a running job (best-effort).
+
+    Implementation note: jobs run in a separate process; on Windows we use taskkill.
+    """
+    try:
+        meta = store.read_meta(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if meta.state in {"succeeded", "failed"}:
+        return StopJobResponse(status="already_finished", job_id=job_id)
+
+    if not meta.pid:
+        # No PID recorded; mark failed.
+        now = _utc_now_iso()
+        meta2 = JobMetadata(
+            **{**asdict(meta), "state": "failed", "updated_at": now, "exit_code": 1, "error": "stop requested but no pid available"}
+        )
+        store.write_meta(meta2)
+        return StopJobResponse(status="failed", job_id=job_id)
+
+    _stop_process(int(meta.pid))
+
+    now = _utc_now_iso()
+    meta2 = JobMetadata(
+        **{
+            **asdict(meta),
+            "state": "failed",
+            "updated_at": now,
+            "exit_code": 1,
+            "error": "stopped by user",
+        }
+    )
+    store.write_meta(meta2)
+    store.append_log(job_id, f"[{now}] Stopped by user")
+    return StopJobResponse(status="stopped", job_id=job_id)
 
 
 @app.websocket("/jobs/{job_id}/stream")
